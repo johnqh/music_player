@@ -24,29 +24,20 @@ export default [
     },
     rules: {
       ...typescript.configs.recommended.rules,
+      // TypeScript already resolves every identifier, and it does so knowing
+      // about type-only names like `BlobPart` that eslint cannot see. Leaving
+      // no-undef on means a correct DOM type annotation fails lint.
+      'no-undef': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/explicit-function-return-type': 'off',
-      '@typescript-eslint/no-non-null-assertion': 'warn',
-      '@typescript-eslint/no-empty-object-type': 'off',
-    },
-  },
-  {
-    /*
-      Tests may assert non-null — the same rule, and the same reasoning, as
-      music_types.
-
-      In shipping code `x!` states a guarantee nobody checked and the failure
-      surfaces far from its cause. A test is the opposite: `result.find(...)!`
-      is followed immediately by an assertion *about* that value, so a wrong
-      assumption fails the test, which is the test's whole purpose.
-
-      Scoped to tests deliberately rather than turned off: the five production
-      instances in this package were replaced with real checks instead.
-    */
-    files: ['src/**/*.test.ts'],
-    rules: {
+      /**
+       * Off, not 'warn' — same call as music_lib and music_api. The codebase
+       * uses `!` deliberately after invariants the compiler cannot see, and as
+       * a warning it only buries the warnings worth reading.
+       */
       '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-empty-object-type': 'off',
     },
   },
 ];

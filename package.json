@@ -1,6 +1,6 @@
 {
   "name": "@sudobility/music_player",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Playback for ScoreSmith: transport, synth engines and offline rendering, for web and React Native",
   "author": "Sudobility",
   "license": "BUSL-1.1",
@@ -16,6 +16,11 @@
         "import": "./dist/web/index.js"
       }
     },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js",
+      "default": "./dist/core.js"
+    },
     "./web": {
       "types": "./dist/web/index.d.ts",
       "import": "./dist/web/index.js"
@@ -27,6 +32,16 @@
     "./mocks": {
       "types": "./dist/mocks/index.d.ts",
       "import": "./dist/mocks/index.js"
+    },
+    "./rn/expression-table": {
+      "types": "./dist/rn/playback/expression-table.d.ts",
+      "import": "./dist/rn/playback/expression-table.js",
+      "default": "./dist/rn/playback/expression-table.js"
+    },
+    "./rn/gm-pack-name": {
+      "types": "./dist/rn/playback/gm-pack-name.d.ts",
+      "import": "./dist/rn/playback/gm-pack-name.js",
+      "default": "./dist/rn/playback/gm-pack-name.js"
     }
   },
   "files": [
@@ -53,7 +68,7 @@
     "prepublishOnly": "bun run clean && bun run verify"
   },
   "peerDependencies": {
-    "@sudobility/music_types": "^0.12.1",
+    "@sudobility/music_types": "^0.13.1",
     "js-synthesizer": "^1.13.0",
     "react-native-audio-api": ">=0.13.0"
   },
@@ -67,7 +82,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@sudobility/music_types": "^0.12.1",
+    "@sudobility/music_types": "^0.13.1",
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
