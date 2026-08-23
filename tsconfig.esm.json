@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "outDir": "./dist",
+    "declarationMap": true,
+    "sourceMap": true,
+    "noEmit": false
+  },
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/contract/**"]
+}
