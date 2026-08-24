@@ -818,7 +818,27 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     if (sounding) this.observer?.onActiveNotes(sounding);
 
     const nowMs = position * 1000;
-    if (nowMs - this.lastReportedAt < POSITION_TICK_INTERVAL_MS) return;
+    /*
+      Throttled forwards only. Going *backwards* is always due.
+
+      The baseline is a playback position, not a wall clock, so any jump back
+      down the piece makes the distance from it negative — and negative is
+      smaller than the interval, so every report is suppressed until playback
+      climbs back past where it had previously reached. `seek` knew this and
+      cleared the baseline itself, but stopping does not go through `seek`: it
+      rewinds the queue directly, so replaying after the transport reached the
+      end left the baseline at the end of the piece. Nothing was ever due
+      again — the music played, and the caret sat at bar 1 for the whole of it
+      with the sheet never following.
+
+      Fixed here rather than by clearing the baseline in `stop` too, because
+      that is the version that has now been missed twice. A backward jump is
+      the *reason* to report, whoever caused it: a stop, a seek, or a loop
+      wrapping to its start.
+    */
+    const sinceLastReport = nowMs - this.lastReportedAt;
+    if (sinceLastReport >= 0 && sinceLastReport < POSITION_TICK_INTERVAL_MS)
+      return;
     this.lastReportedAt = nowMs;
     this.observer?.onPositionTick(Math.max(0, Math.round(this.tickForSeconds(position))));
   }

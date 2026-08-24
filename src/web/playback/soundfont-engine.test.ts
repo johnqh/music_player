@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PlaybackLoadState, PlaybackPlan } from '@sudobility/music_types';
 import { SoundfontPlaybackEngine } from './soundfont-engine.js';
-import { testNote, testPlan, testTrack, twoTrackPlan } from '../../shared/test-plan.js';
+import {
+  TICKS_PER_SECOND,
+  testNote,
+  testPlan,
+  testTrack,
+  twoTrackPlan,
+} from '../../shared/test-plan.js';
 
 /** Records everything the engine tells the synth host. */
 function stubHost() {
@@ -983,5 +989,59 @@ describe('SoundfontPlaybackEngine: note velocity', () => {
     pump.step();
 
     expect(host.noteAt.mock.calls.map((call) => call[3])).toEqual([1, 127, 81]);
+  });
+});
+
+describe('SoundfontPlaybackEngine: playing again after the end', () => {
+  /*
+    The reported bug: play a score to the end, press play again, and the sheet
+    no longer follows the music.
+
+    Nothing about following was broken. `report` throttles on the distance from
+    the last reported *playback position*, and stopping rewinds the queue
+    without clearing that baseline — so on the replay every position was
+    "too soon" until playback climbed back past the end of the piece, which it
+    never does. Audio played; the caret sat at bar 1 for the whole of it.
+  */
+  it('reports position again on the play after the transport reached the end', async () => {
+    // Ten notes a second apart, so the four-second horizon cannot drain them
+    // in one tick and the piece has a real end to reach.
+    const plan = testPlan({
+      tracks: [testTrack({ id: 't1' })],
+      notes: Array.from({ length: 10 }, (_, i) =>
+        testNote({ trackId: 't1', tick: i * TICKS_PER_SECOND, durTicks: 480 }),
+      ),
+    });
+    const { engine, pump, clock } = setup(plan);
+    const states: string[] = [];
+    const ticks: number[] = [];
+    engine.setObserver({
+      onPositionTick: (tick) => ticks.push(tick),
+      onActiveNotes: () => {},
+      onStateChange: (state) => states.push(state),
+      onLoadStateChange: () => {},
+    });
+    await engine.initialize();
+    await engine.load(plan);
+
+    await engine.play();
+    for (let second = 0; second <= 14; second += 1) {
+      clock.t = second;
+      pump.step();
+    }
+    expect(states).toContain('stopped');
+
+    states.length = 0;
+    ticks.length = 0;
+    await engine.play();
+    // The wall clock only ever moves forward; it is the *playback* position
+    // that goes back to the start, which is the whole point of the case.
+    for (let second = 1; second <= 4; second += 1) {
+      clock.t = 14 + second;
+      pump.step();
+    }
+
+    expect(states).toContain('playing');
+    expect(ticks.filter((tick) => tick > 0).length).toBeGreaterThan(0);
   });
 });

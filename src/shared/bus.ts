@@ -37,7 +37,6 @@ export class PlaybackBus {
   >();
 
   /** The last values published, so a subscriber joining mid-playback is not blind until the next event. */
-  private lastPosition = 0;
   private lastSounding: readonly SoundingNote[] = [];
   private lastTransport: TransportPlaybackState = 'stopped';
 
@@ -71,7 +70,6 @@ export class PlaybackBus {
    * and the keyboard under load.
    */
   publishPosition(tick: number): void {
-    this.lastPosition = tick;
     getMusicPositionSource().report(tick);
     for (const listener of this.positionListeners) listener(tick);
   }
@@ -90,9 +88,21 @@ export class PlaybackBus {
     for (const listener of this.transportListeners) listener(state);
   }
 
-  /** Where playback last reported it was. Read once on subscribe; do not poll this. */
+  /**
+   * Where playback last reported it was. Read once on subscribe; do not poll
+   * this.
+   *
+   * Delegated to the playhead rather than kept here. The bus used to store its
+   * own copy of the reported tick beside the one `IMusicPositionSource` holds,
+   * which made two objects each own the same fact — and they duly came apart:
+   * when the engine's throttle stopped reporting, the playhead went on
+   * projecting while this copy stayed where it was, so the caret glided the
+   * length of the score with the scroll and the readouts still at bar one.
+   * Reading through means the smoothed position and the reported one are two
+   * views of one state, which is what the interface promises.
+   */
   get positionTick(): number {
-    return this.lastPosition;
+    return getMusicPositionSource().reportedTick;
   }
 
   get sounding(): readonly SoundingNote[] {
