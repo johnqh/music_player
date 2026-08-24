@@ -85,21 +85,36 @@ function graphOf(engine: SoundfontPlaybackEngine): { clicks: ClickRecord[] } {
 }
 
 /** A pump we step by hand, so tests never wait on real time. */
+/**
+ * The engine registers more than one ticker — audio scheduling at 50ms and the
+ * lit keys at frame rate — so this holds every callback rather than the last
+ * one. Keeping only the last silently replaced the scheduling pump with the
+ * sounding ticker, and `step()` then drove neither the notes nor the metronome.
+ */
 function manualPump() {
-  let tick: (() => void) | null = null;
+  const ticks = new Map<() => void, number>();
   return {
-    start: (cb: () => void) => {
-      tick = cb;
+    start: (cb: () => void, intervalMs: number) => {
+      ticks.set(cb, intervalMs);
       return () => {
-        tick = null;
+        ticks.delete(cb);
       };
     },
-    step: () => tick?.(),
+    step: () => {
+      for (const tick of [...ticks.keys()]) tick();
+    },
+    /** Drives only the tickers registered at `intervalMs`, so a test can run one without the other. */
+    stepEvery: (intervalMs: number) => {
+      for (const [tick, ms] of [...ticks]) if (ms === intervalMs) tick();
+    },
     get running() {
-      return tick !== null;
+      return ticks.size > 0;
     },
   };
 }
+
+/** The cadence the lit keys run at, which is deliberately not the scheduler's. */
+const SOUNDING_MS = 16;
 
 function setup(plan?: PlaybackPlan, createContext: () => AudioContext = () => stubContext()) {
   const host = stubHost();
@@ -770,6 +785,66 @@ describe('SoundfontPlaybackEngine: sounding notes', () => {
     pump.step();
 
     expect(onActiveNotes.mock.calls.length).toBe(afterFirst);
+  });
+
+  it('lights a key without waiting for the audio scheduler', async () => {
+    // The bug this fixes: the lit keys used to be published from the 50ms
+    // scheduling pump, so a note that began just after one waited up to a full
+    // 50ms to light — visibly behind the sound. The caret never had the
+    // problem because it dead-reckons between reports; the keys just waited.
+    const { engine, pump, clock, plan } = setup();
+    const { onActiveNotes, observer } = observed();
+    engine.setObserver(observer);
+    await engine.initialize();
+    await engine.load(plan);
+    await engine.play();
+    pump.step();
+    onActiveNotes.mockClear();
+
+    // Time passes across a note boundary, and the scheduler is deliberately
+    // never run again — only the frame-rate ticker.
+    for (let i = 0; i < 60; i += 1) {
+      clock.t += SOUNDING_MS / 1000;
+      pump.stepEvery(SOUNDING_MS);
+    }
+
+    expect(onActiveNotes).toHaveBeenCalled();
+    // And it happened on a sounding tick, not a scheduling one: the scheduler
+    // has not run since the mock was cleared.
+    expect(pump.running).toBe(true);
+  });
+
+  it('holds a key back by the time the sound is still in the pipeline', async () => {
+    // `currentTime` is what the graph is scheduling, not what the room has
+    // heard: with a long output latency the music is further behind, so the
+    // lights have to wait for it. Exaggerated here to be unmistakable — a real
+    // machine reports ~20ms, which nearly cancels the render delay.
+    const laggy = stubContext();
+    (laggy as unknown as { outputLatency: number }).outputLatency = 5;
+    const slow = setup(undefined, () => laggy as unknown as AudioContext);
+    const a = observed();
+    slow.engine.setObserver(a.observer);
+    await slow.engine.initialize();
+    await slow.engine.load(slow.plan);
+    await slow.engine.play();
+    slow.clock.t += 0.05;
+    slow.pump.step();
+
+    const litUnderLatency = (a.onActiveNotes.mock.calls.at(-1)?.[0] ?? []) as unknown[];
+
+    const prompt = setup();
+    const b = observed();
+    prompt.engine.setObserver(b.observer);
+    await prompt.engine.initialize();
+    await prompt.engine.load(prompt.plan);
+    await prompt.engine.play();
+    prompt.clock.t += 0.05;
+    prompt.pump.step();
+
+    const litWithout = (b.onActiveNotes.mock.calls.at(-1)?.[0] ?? []) as unknown[];
+
+    expect(litWithout.length).toBeGreaterThan(0);
+    expect(litUnderLatency.length).toBe(0);
   });
 
   it('stops reporting a note once it has ended', async () => {

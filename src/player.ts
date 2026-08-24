@@ -61,7 +61,27 @@ export class MusicPlayer implements IMusicPlayer {
     (state: PlaybackLoadState) => void
   >();
 
+  /** Detaches the position subscription this player follows. */
+  private readonly stopFollowingPosition: () => void;
+
   constructor(private readonly engine: PlaybackEngine) {
+    /*
+      The player follows the position; nothing tells the player to seek.
+
+      There is one position, and this is the thing that plays it. An editor
+      that moved the caret *and* called `seek` would be two writes of one
+      number, which is how they drift — and it would mean every host, on every
+      platform, remembering to make the second call. So a move is observed
+      here, and following it is the player's own business.
+
+      `subscribeToMoves`, not `subscribe`: the latter also fires on this
+      player's own reports, and following those would be seeking to where it
+      already is, thirty times a second.
+    */
+    this.stopFollowingPosition = getMusicPositionSource().subscribeToMoves((tick) => {
+      this.seek(tick);
+    });
+
     engine.setObserver({
       /*
         Translated here, and only here.
@@ -147,7 +167,12 @@ export class MusicPlayer implements IMusicPlayer {
    *
    * The engine is given the first performance position of that tick, which is
    * what "play from here" means to somebody reading the page — the first time
-   * through, not the repeat. The caret is the host's to move.
+   * through, not the repeat.
+   *
+   * Hosts do not normally call this: moving the shared position is enough, and
+   * the constructor's subscription brings the engine along. It stays public
+   * because the transport's own controls (a scrubber, stop) are moving the
+   * position and the playhead together by definition.
    */
   seek(scoreTick: number): void {
     if (!this.score) return;
@@ -214,6 +239,7 @@ export class MusicPlayer implements IMusicPlayer {
   }
 
   dispose(): void {
+    this.stopFollowingPosition();
     this.loadStateListeners.clear();
     this.engine.dispose();
   }

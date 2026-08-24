@@ -73,6 +73,14 @@ export type RNOfflineAudioContext = {
 
 export type RNAudioContext = {
   readonly currentTime: number;
+  /**
+   * Seconds between a sample being scheduled and it reaching the speaker.
+   *
+   * Optional because no React Native audio backend reports it today; a host
+   * that can should, since it is what lets the lit keys match the ear rather
+   * than the scheduler (`shared/visual-sync.ts`).
+   */
+  readonly outputLatency?: number;
   readonly destination: RNAudioNode;
   readonly sampleRate: number;
   createGain(): RNGainNode;

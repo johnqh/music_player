@@ -32,6 +32,10 @@ import type { ChannelAssignment } from './channel-allocator.js';
 import { PlaybackClock } from './clock.js';
 import { NoteQueue } from '../../shared/note-queue.js';
 import { SoundingSet } from '../../shared/sounding-set.js';
+import {
+  SOUNDING_INTERVAL_MS,
+  visualSoundingOffsetSeconds,
+} from '../../shared/visual-sync.js';
 import { scheduleClick } from './click.js';
 import type { ScheduledClick } from './click.js';
 import { Governor } from './governor.js';
@@ -84,6 +88,10 @@ export type SoundfontEngineDeps = {
 
 /** How often the pump runs. */
 const PUMP_INTERVAL_MS = 50;
+
+/* The lit keys' cadence and the two delays it corrects for live in
+   `shared/visual-sync.ts`, so this engine and the React Native one cannot
+   drift apart on arithmetic that is invisible when it is wrong. */
 /**
  * How far ahead the sequencer is kept filled.
  *
@@ -157,6 +165,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   private tracks = new Map<string, TrackState>();
   private observer: PlaybackObserver | null = null;
   private stopPump: (() => void) | null = null;
+  private stopSoundingTicker: (() => void) | null = null;
   private readonly sounding = new SoundingSet();
   /**
    * When the last note of the loaded score finishes.
@@ -649,12 +658,34 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   private startPump(): void {
     if (this.stopPump) return;
     this.stopPump = this.deps.startPump(() => this.tick(), PUMP_INTERVAL_MS);
+    this.stopSoundingTicker = this.deps.startPump(
+      () => this.tickSounding(),
+      SOUNDING_INTERVAL_MS
+    );
     this.tick();
   }
 
   private endPump(): void {
     this.stopPump?.();
     this.stopPump = null;
+    this.stopSoundingTicker?.();
+    this.stopSoundingTicker = null;
+  }
+
+  /**
+   * Guarded for the same reason `tick` is, and separately from it: this is its
+   * own bare interval callback, so a throw here would kill the key lights
+   * silently while audio carried on perfectly.
+   */
+  private tickSounding(): void {
+    try {
+      this.reportSounding();
+    } catch (error) {
+      this.tickFailures += 1;
+      if (this.tickFailures <= MAX_REPORTED_TICK_FAILURES) {
+        console.error('Playback pump failed', error);
+      }
+    }
   }
 
   private tick(): void {
@@ -814,8 +845,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
    * pump's back.
    */
   private report(position: number): void {
-    const sounding = this.sounding.advanceTo(position);
-    if (sounding) this.observer?.onActiveNotes(sounding);
+    this.reportSounding();
 
     const nowMs = position * 1000;
     /*
@@ -841,6 +871,20 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
       return;
     this.lastReportedAt = nowMs;
     this.observer?.onPositionTick(Math.max(0, Math.round(this.tickForSeconds(position))));
+  }
+
+  /**
+   * Publishes the lit keys, at the position the listener is actually hearing.
+   *
+   * Separate from `report` because it runs on its own, faster ticker: the keys
+   * are a visual and want frame rate, while the position report drives the
+   * caret, which interpolates and does not.
+   */
+  private reportSounding(): void {
+    const at =
+      this.clock.positionSeconds + visualSoundingOffsetSeconds(this.context?.outputLatency);
+    const sounding = this.sounding.advanceTo(at);
+    if (sounding) this.observer?.onActiveNotes(sounding);
   }
 
   /** Drops the sounding set and says so, for a seek, stop or teardown. */

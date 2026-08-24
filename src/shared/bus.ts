@@ -28,7 +28,15 @@ export type Unsubscribe = () => void;
 import { getMusicPositionSource } from '@sudobility/music_types';
 
 export class PlaybackBus {
-  private readonly positionListeners = new Set<(tick: number) => void>();
+  /*
+    No position listener list of its own.
+
+    The bus used to keep one and notify it from `publishPosition`, which meant
+    a subscriber heard about playback advancing but *not* about a seek — a
+    click on the stave or an arrow key moves the position without going near
+    this class, and the scroll and the readouts sat still. Two lists of
+    listeners for one number is the same mistake as two copies of the number.
+  */
   private readonly soundingListeners = new Set<
     (notes: readonly SoundingNote[]) => void
   >();
@@ -41,8 +49,7 @@ export class PlaybackBus {
   private lastTransport: TransportPlaybackState = 'stopped';
 
   onPosition(listener: (tick: number) => void): Unsubscribe {
-    this.positionListeners.add(listener);
-    return () => this.positionListeners.delete(listener);
+    return getMusicPositionSource().subscribe(listener);
   }
 
   onSounding(listener: (notes: readonly SoundingNote[]) => void): Unsubscribe {
@@ -70,8 +77,9 @@ export class PlaybackBus {
    * and the keyboard under load.
    */
   publishPosition(tick: number): void {
+    // Reporting *is* publishing: the position notifies its own subscribers,
+    // and `onPosition` is one of them.
     getMusicPositionSource().report(tick);
-    for (const listener of this.positionListeners) listener(tick);
   }
 
   /**
@@ -115,7 +123,6 @@ export class PlaybackBus {
 
   /** Drops every listener. For teardown; a live app never calls this. */
   clear(): void {
-    this.positionListeners.clear();
     this.soundingListeners.clear();
     this.transportListeners.clear();
   }

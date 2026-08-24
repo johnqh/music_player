@@ -66,6 +66,10 @@ import type {
   RNStereoPanner,
 } from './audio-api.js';
 import { applySustainLoop } from './sustain-loop.js';
+import {
+  SOUNDING_INTERVAL_MS,
+  visualSoundingOffsetSeconds,
+} from '../../shared/visual-sync.js';
 
 /** How often the pump looks for notes to schedule. */
 const PUMP_INTERVAL_MS = 50;
@@ -149,6 +153,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
   private loadState: PlaybackLoadState = { status: 'idle' };
 
   private stopPump: (() => void) | null = null;
+  private stopSoundingTimer: (() => void) | null = null;
   private stopPositionTimer: (() => void) | null = null;
   /** Context time corresponding to `originTick`. */
   private originContextTime = 0;
@@ -305,8 +310,19 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     this.haltPump();
     this.stopPump = this.deps.startPump(() => this.pump(), PUMP_INTERVAL_MS);
     this.stopPositionTimer = this.deps.startPump(() => this.reportPosition(), POSITION_TICK_INTERVAL_MS);
+    // Its own cadence, faster than the position report: the caret interpolates
+    // between position ticks and does not need them often, while a key light
+    // is a discrete event with nothing to interpolate it.
+    this.stopSoundingTimer = this.deps.startPump(
+      () => this.reportSounding(),
+      SOUNDING_INTERVAL_MS
+    );
     this.pump();
     this.reportPosition();
+    // Immediately, not on the timer's first tick: pressing play lights the
+    // downbeat now. `reportPosition` used to carry this, and separating the
+    // two cadences is what took it away.
+    this.reportSounding();
   }
 
   pause(): void {
@@ -344,6 +360,8 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     this.stopPump = null;
     this.stopPositionTimer?.();
     this.stopPositionTimer = null;
+    this.stopSoundingTimer?.();
+    this.stopSoundingTimer = null;
   }
 
   private setState(next: TransportPlaybackState): void {
@@ -370,14 +388,23 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
 
   private reportPosition(): void {
     this.positionTick = this.currentTick();
-    this.reportSounding();
     this.observer?.onPositionTick(this.positionTick);
   }
 
-  /** The lit set, at the clock's position, and only when it has changed. */
+  /**
+   * The lit set, at the position the listener is actually hearing, and only
+   * when it has changed.
+   *
+   * Reads the clock itself rather than trusting `positionTick`: it runs on its
+   * own timer now, so the field would be up to a position-tick stale — which
+   * is exactly the lag this exists to remove.
+   */
   private reportSounding(): void {
     if (!this.tempo) return;
-    const notes = this.sounding.advanceTo(this.tempo.ticksToSeconds(this.positionTick));
+    const at =
+      this.tempo.ticksToSeconds(this.currentTick()) +
+      visualSoundingOffsetSeconds(this.ctx?.outputLatency);
+    const notes = this.sounding.advanceTo(at);
     if (notes) this.setActiveNotes(notes);
   }
 

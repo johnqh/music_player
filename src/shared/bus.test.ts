@@ -65,12 +65,36 @@ describe('PlaybackBus', () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it('clear() drops every listener', () => {
+  it('clear() drops the listeners it owns', () => {
+    const bus = new PlaybackBus();
+    const sounding = vi.fn();
+    const transport = vi.fn();
+    bus.onSounding(sounding);
+    bus.onTransport(transport);
+
+    bus.clear();
+    bus.publishSounding([]);
+    bus.publishTransport('playing');
+
+    expect(sounding).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it('leaves position subscriptions alone, because they are not its to cancel', () => {
+    // `onPosition` forwards to the shared playhead, which outlives any one bus
+    // — so tearing a bus down must not silently unsubscribe whatever else in
+    // the app is following the music. The caller unsubscribes with the handle
+    // it was given.
     const bus = new PlaybackBus();
     const listener = vi.fn();
-    bus.onPosition(listener);
+    const off = bus.onPosition(listener);
+
     bus.clear();
     bus.publishPosition(1);
-    expect(listener).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledWith(1);
+
+    off();
+    bus.publishPosition(2);
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });

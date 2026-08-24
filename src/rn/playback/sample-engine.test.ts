@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SOUNDING_INTERVAL_MS } from '../../shared/visual-sync.js';
 import { testNote, testPlan, testTrack } from '../../shared/test-plan.js';
 import type {
   SoundingNote, PlaybackLoadState, TransportPlaybackState } from '@sudobility/music_types';
@@ -231,7 +232,7 @@ function kitBody(name: string): string {
 
 function makeEngine(overrides: { fetchPack?: (url: string) => Promise<string>; percussionBase?: string } = {}) {
   const graph = new FakeGraph();
-  const pumps: Array<() => void> = [];
+  const pumps: Array<{ tick: () => void; intervalMs: number }> = [];
   const engine = new RNSamplePlaybackEngine({
     loadAudioApi: async () => graph.api,
     percussionBase: overrides.percussionBase ?? 'https://app.example.com/audio/percussion/',
@@ -241,17 +242,20 @@ function makeEngine(overrides: { fetchPack?: (url: string) => Promise<string>; p
         const name = /\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!;
         return name.startsWith('percussion_') ? kitBody(name) : packBody(name);
       }),
-    startPump: (tick) => {
-      pumps.push(tick);
+    startPump: (tick, intervalMs) => {
+      pumps.push({ tick, intervalMs });
       return () => {
-        const i = pumps.indexOf(tick);
+        const i = pumps.findIndex((p) => p.tick === tick);
         if (i >= 0) pumps.splice(i, 1);
       };
     },
   });
-  /** Runs every registered timer once — the pump and the position reporter. */
-  const step = () => [...pumps].forEach((p) => p());
-  return { engine, graph, step };
+  /** Runs every registered timer once — the pump, the position reporter and the lit keys. */
+  const step = () => [...pumps].forEach((p) => p.tick());
+  /** Runs only the lit-keys timer, so a test can show they do not wait for the others. */
+  const stepSounding = () =>
+    [...pumps].filter((p) => p.intervalMs === SOUNDING_INTERVAL_MS).forEach((p) => p.tick());
+  return { engine, graph, step, stepSounding };
 }
 
 function recordingObserver() {
@@ -499,6 +503,25 @@ describe('RNSamplePlaybackEngine', () => {
 
     ctx.graph.currentTime = 0.15;
     ctx.step();
+    expect((activeNotes.at(-1) ?? []).map((n) => n.noteId)).toEqual(['n0']);
+  });
+
+  it('lights a note without waiting for a position report', async () => {
+    // The lit keys used to ride the 30Hz position timer, so a key waited up to
+    // a position tick to come on — visibly behind the sound. The caret can
+    // afford that cadence because it interpolates between reports; a key light
+    // is a discrete event with nothing to interpolate it, so it now has its
+    // own faster timer.
+    const { observer, activeNotes } = recordingObserver();
+    ctx.engine.setObserver(observer);
+    await ctx.engine.load(oneNotePlan(96, 480));
+    await ctx.engine.play();
+
+    const before = activeNotes.length;
+    ctx.graph.currentTime = 0.15;
+    ctx.stepSounding();
+
+    expect(activeNotes.length).toBeGreaterThan(before);
     expect((activeNotes.at(-1) ?? []).map((n) => n.noteId)).toEqual(['n0']);
   });
 
