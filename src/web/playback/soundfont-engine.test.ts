@@ -165,6 +165,44 @@ describe('SoundfontPlaybackEngine: loading a score', () => {
     expect(host.programSelect).toHaveBeenCalledTimes(1); // only the pitched track
   });
 
+  it('gives a second percussion track its own drum channel, and plays it there', async () => {
+    // The case a real score hits the moment somebody adds a kit beside the
+    // drums it already had. Channel 9 is the only channel fluidsynth types as
+    // drums by itself, so the second one has to be told — and if its notes go
+    // anywhere but its own channel, the track is silent however loud it is.
+    const base = twoTrackPlan();
+    const plan = testPlan({
+      ...base,
+      tracks: [
+        { ...base.tracks[0], isPercussion: true },
+        { ...base.tracks[1], isPercussion: true },
+      ],
+    });
+    const { engine, host, pump, clock } = setup(plan);
+    await engine.initialize();
+    await engine.load(plan);
+    await engine.play();
+
+    // Both are drum channels, and they are different ones.
+    expect(host.setChannelPercussion).toHaveBeenCalledTimes(2);
+    const drumChannels = host.setChannelPercussion.mock.calls.map((c) => c[1]);
+    expect(new Set(drumChannels).size).toBe(2);
+    expect(drumChannels).toContain(9);
+
+    // Neither is given a melodic program, which is what silences a drum channel.
+    expect(host.programSelect).not.toHaveBeenCalled();
+
+    // And every note lands on one of those two channels — in particular the
+    // second track's notes reach the second channel rather than vanishing.
+    for (let i = 0; i < 40; i += 1) {
+      pump.step();
+      clock.t += 0.1;
+    }
+    const noteChannels = new Set(host.noteOn.mock.calls.map((c) => c[1]));
+    expect(noteChannels.size).toBe(2);
+    for (const channel of noteChannels) expect(drumChannels).toContain(channel);
+  });
+
   it('tells the host how many channels are summing, which sizes the headroom', async () => {
     const { engine, host, plan } = setup();
     await engine.initialize();

@@ -3,7 +3,7 @@ import { playbackPlan } from './plan.js';
 import { createEmptyScore } from '@sudobility/music_types';
 import { addNoteCommand } from '@sudobility/music_types';
 import { renderEvents } from './render-events.js';
-import { twinkleScore } from '../test/fixtures.js';
+import { twinkleScore } from '@sudobility/music_types/test';
 import type { Measure, NoteEvent, Pitch, Score } from '@sudobility/music_types';
 
 const pitch = (step: string, octave = 4): Pitch =>

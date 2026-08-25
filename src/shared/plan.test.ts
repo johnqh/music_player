@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { twoTrackScore, twinkleScore } from '../test/fixtures.js';
+import { twoTrackScore, twinkleScore } from '@sudobility/music_types/test';
 import type { Measure, NoteEvent, Score } from '@sudobility/music_types';
 import { playbackPlan, playbackTracks } from './plan.js';
 import { isNoteEvent } from '@sudobility/music_types';

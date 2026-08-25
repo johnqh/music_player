@@ -41,6 +41,7 @@ import type { ScheduledClick } from './click.js';
 import { Governor } from './governor.js';
 import { loadSoundfont, openSoundfontCache } from './soundfont-loader.js';
 import type { LoadProgress } from './soundfont-loader.js';
+import { CC_PAN, CC_VOLUME } from '@sudobility/music_types';
 
 /** The slice of `SynthHost` this engine drives, so tests can pass a stub. */
 export type SynthHostLike = {
@@ -114,8 +115,6 @@ const HORIZON_SECONDS = 4;
  */
 const MAX_EVENTS_PER_REFILL = 512;
 const POSITION_TICK_INTERVAL_MS = 1000 / 30;
-const CC_VOLUME = 7;
-const CC_PAN = 10;
 const MAX_CC = 127;
 // `CHANNELS_PER_INSTANCE` is imported from the allocator rather than restated
 // here. A second copy of it went stale the moment the allocator moved to 256:

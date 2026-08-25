@@ -16,6 +16,7 @@
 import { headroomTrimFor, LIMITER_CEILING_DB } from '../../shared/mix.js';
 import { CHANNELS_PER_INSTANCE } from './channel-allocator.js';
 import { createWorkletQuietModuleUrl } from './quiet-stub-notices.js';
+import { DRUM_BANK, PERCUSSION_CHANNEL } from '@sudobility/music_types';
 
 /**
  * The subset of `js-synthesizer`'s `SynthesizerSettings` this host sets.
@@ -23,17 +24,73 @@ import { createWorkletQuietModuleUrl } from './quiet-stub-notices.js';
  * Both are init-time only. `ISynthesizer` exposes `setInterpolation` and
  * `setGain` and nothing else, so neither can be changed on a running synth.
  */
+/**
+ * Every setting fluidsynth reads at synth construction, stated.
+ *
+ * Not a subset. A setting left out is not "unset" — it is fluidsynth's default
+ * silently adopted, which is how this synth came to run on sixteen MIDI
+ * channels while the allocator handed out channel 25 and the notes went
+ * nowhere. Anything below that matches the library's own default is there
+ * *because it was chosen*, not because nobody looked.
+ */
 export type SynthSettings = {
   /** int [16-256], and a multiple of 16. */
-  midiChannelCount?: number;
+  midiChannelCount: number;
   /** int [1-65535]. Above it, fluidsynth steals by its own overflow priority. */
-  polyphony?: number;
+  polyphony: number;
+  /** Output level before our own master gain. fluidsynth's default. */
+  initialGain: number;
+  /**
+   * How bank-select messages are read.
+   *
+   * `gs` is fluidsynth's default and is kept: nothing here ever sends a
+   * bank-select message. Programs and drum kits are chosen with
+   * `midiProgramSelect`, which names the bank outright, so this setting has
+   * nothing to act on either way.
+   */
+  midiBankSelect: 'gm' | 'gs' | 'xg' | 'mma';
+  /**
+   * Chorus and reverb, both on — which is fluidsynth's default and is a
+   * deliberate keep rather than an inheritance.
+   *
+   * They colour every note, so the decision belongs somewhere visible; and
+   * because live playback and offline audio export share this host, whatever
+   * is chosen here is what the exported file contains too. Turning them off
+   * would be a product decision about how the app sounds, not a bug fix.
+   */
+  chorusActive: boolean;
+  reverbActive: boolean;
+  /**
+   * Shortest note fluidsynth will sound, in milliseconds. Its default, kept:
+   * a drum hit is already far longer than this, and raising it would stretch
+   * short notes rather than protect anything.
+   */
+  minNoteLength: number;
 };
+
+/** Every channel, for the calls that would otherwise take an implicit one. */
+const ALL_CHANNELS = -1;
 
 /** The slice of `AudioWorkletNodeSynthesizer` this host uses. */
 export type SynthInstance = {
+  /**
+   * A no-op on `AudioWorkletNodeSynthesizer`, kept because the interface it
+   * implements declares it. Settings passed here go nowhere — see
+   * `createAudioNode`.
+   */
   init(sampleRate: number, settings?: SynthSettings): void;
-  createAudioNode(context: BaseAudioContext, bufferSize: number): AudioNode;
+  /**
+   * Builds the node **and creates the synth behind it**, which is why the
+   * settings belong here.
+   *
+   * `js-synthesizer` has two classes with the same method name and different
+   * second parameters: `Synthesizer` takes a ScriptProcessor frame size, and
+   * `AudioWorkletNodeSynthesizer` — the one this host builds — takes the
+   * settings object, which it forwards as the worklet's `processorOptions`.
+   * This type described the wrong one, so a frame size was being handed over
+   * as settings and every setting silently defaulted. See `grow`.
+   */
+  createAudioNode(context: BaseAudioContext, settings: SynthSettings): AudioNode;
   loadSFont(data: ArrayBuffer): Promise<number>;
   createSequencer?(): Promise<SynthSequencer>;
   midiNoteOn(channel: number, midi: number, velocity: number): void;
@@ -41,8 +98,10 @@ export type SynthInstance = {
   midiProgramSelect(channel: number, sfontId: number, bank: number, preset: number): void;
   midiControl(channel: number, control: number, value: number): void;
   midiSetChannelType(channel: number, isDrum: boolean): void;
-  midiAllSoundsOff(channel?: number): void;
-  setInterpolation(order: number): void;
+  /** `-1` is every channel. Pass it rather than omitting the argument. */
+  midiAllSoundsOff(channel: number): void;
+  /** `-1` is every channel. Pass it rather than omitting the argument. */
+  setInterpolation(order: number, channel: number): void;
   close(): void;
 };
 
@@ -67,11 +126,6 @@ export type SynthHostOptions = {
   instanceCount: number;
 };
 
-/** Big enough that the worklet is not woken constantly, small enough not to add audible latency. */
-const RENDER_BUFFER_SIZE = 8192;
-
-/** Channels each instance addresses; the allocator's own constant, so the two cannot drift. */
-const MIDI_CHANNEL_COUNT = CHANNELS_PER_INSTANCE;
 /**
  * The voice ceiling, chosen once at init because fluidsynth exposes no runtime
  * setter for it.
@@ -83,15 +137,8 @@ const MIDI_CHANNEL_COUNT = CHANNELS_PER_INSTANCE;
  */
 const POLYPHONY = 2048;
 
-/**
- * Where General MIDI keeps its drum kits. Channel 9 is already there in GM
- * mode; any other channel has to be sent there explicitly.
- */
-const DRUM_BANK = 128;
 /** The kit channel 9 defaults to, so a switched channel matches it. */
 const STANDARD_KIT = 0;
-/** The one channel General MIDI reserves for drums, and the one that may never go melodic. */
-const PERCUSSION_CHANNEL = 9;
 
 export class SynthHost {
   private synths: SynthInstance[] = [];
@@ -178,12 +225,42 @@ export class SynthHost {
     if (!context || !soundfont || !this.master) return;
     for (let i = this.synths.length; i < count; i += 1) {
       const synth = await this.deps.createSynth();
-      synth.init(context.sampleRate, { midiChannelCount: MIDI_CHANNEL_COUNT, polyphony: POLYPHONY });
-      synth.createAudioNode(context, RENDER_BUFFER_SIZE).connect(this.master);
+      /*
+        Settings go to `createAudioNode`, not to `init`.
+
+        `AudioWorkletNodeSynthesizer.init` is literally an empty method — its
+        own parameters are named `_sampleRate` and `_settings` — because the
+        synth it stands for lives in the worklet and is constructed when the
+        node is, from `processorOptions.settings`. Everything handed to `init`
+        was therefore discarded, and the second argument to `createAudioNode`
+        (a ScriptProcessor frame size, which the worklet has no use for) was
+        being read as the settings object.
+
+        The synth consequently ran on fluidsynth's defaults: sixteen MIDI
+        channels rather than 256, and 256 voices rather than 2048. Sixteen is
+        the one that shows: the allocator hands a second percussion track
+        channel 25, which on a sixteen-channel synth does not exist, so every
+        note written to it was dropped in silence — no error, no missing note,
+        just a track that could not be heard however loud or soloed it was.
+      */
+      const settings: SynthSettings = {
+        midiChannelCount: CHANNELS_PER_INSTANCE,
+        polyphony: POLYPHONY,
+        // The rest match fluidsynth's own defaults, written out so each one is
+        // a decision on the record. See `SynthSettings`.
+        initialGain: 0.2,
+        midiBankSelect: 'gs',
+        chorusActive: true,
+        reverbActive: true,
+        minNoteLength: 10,
+      };
+      synth.init(context.sampleRate, settings);
+      synth.createAudioNode(context, settings).connect(this.master);
       this.sfontIds[i] = await synth.loadSFont(soundfont);
       this.sequencers[i] = await this.createSequencerFor(synth);
       // The governor speaks for every instance, and it may already have spoken.
-      if (this.interpolation !== null) synth.setInterpolation(this.interpolation);
+      if (this.interpolation !== null)
+        synth.setInterpolation(this.interpolation, ALL_CHANNELS);
       this.synths[i] = synth;
     }
   }
@@ -326,13 +403,13 @@ export class SynthHost {
   /** Silences everything immediately — stop, seek, and panic all go through here. */
   allSoundOff(): void {
     for (const sequencer of this.sequencers) sequencer?.removeAllEvents();
-    for (const synth of this.synths) synth.midiAllSoundsOff();
+    for (const synth of this.synths) synth.midiAllSoundsOff(ALL_CHANNELS);
   }
 
   /** The governor's one confirmed knob; applies to every instance at once. */
   setInterpolation(order: number): void {
     this.interpolation = order;
-    for (const synth of this.synths) synth.setInterpolation(order);
+    for (const synth of this.synths) synth.setInterpolation(order, ALL_CHANNELS);
   }
 
   setMasterVolume(volume: number): void {

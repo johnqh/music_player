@@ -1,3 +1,4 @@
+import { MIDI_CHANNELS_PER_PORT, PERCUSSION_CHANNEL } from '@sudobility/music_types';
 /**
  * Which synth instance and MIDI channel each track plays on.
  *
@@ -47,12 +48,9 @@ export type AllocatorTrack = { id: string; isPercussion: boolean };
  */
 export const CHANNELS_PER_INSTANCE = 256;
 
-/** The one channel fluidsynth already types as drums, so it needs no switch. */
-const DEFAULT_PERCUSSION_CHANNEL = 9;
-
 /** Channels reserved for percussion; see this module's doc for why it is not just 9. */
 function isDrumCapable(channel: number): boolean {
-  return channel % 16 === 9;
+  return channel % MIDI_CHANNELS_PER_PORT === PERCUSSION_CHANNEL;
 }
 
 export function allocateChannels(tracks: readonly AllocatorTrack[]): {
@@ -84,7 +82,7 @@ export function allocateChannels(tracks: readonly AllocatorTrack[]): {
       // Among percussion, only instance 0's channel 9 is fluidsynth's own drum
       // channel; every other drum slot has to be told what it is.
       needsDrumTypeSwitch:
-        isPercussion && !(instance === 0 && channel === DEFAULT_PERCUSSION_CHANNEL),
+        isPercussion && !(instance === 0 && channel === PERCUSSION_CHANNEL),
     });
   };
 

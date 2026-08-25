@@ -110,18 +110,78 @@ describe('SynthHost: timed notes', () => {
 });
 
 describe('SynthHost: synth settings', () => {
-  it('initialises each synth with 256 MIDI channels and a generous voice ceiling', async () => {
+  it('builds each synth with 256 MIDI channels and a generous voice ceiling', async () => {
+    // Asserted where the synth is actually built. This used to check `init`,
+    // which is an empty method on the worklet class — so it passed while every
+    // setting was being discarded.
     const { synths } = await hostWith(1);
-    expect(synths[0].calls.init).toEqual([[44100, { midiChannelCount: 256, polyphony: 2048 }]]);
+    const settings = vi.mocked(synths[0].createAudioNode).mock.calls[0]?.[1];
+    expect(settings).toMatchObject({ midiChannelCount: 256, polyphony: 2048 });
+  });
+
+  it('states every setting fluidsynth reads, rather than inheriting defaults', async () => {
+    // A setting left out is not unset — it is fluidsynth's default silently
+    // adopted, which is how this ran on sixteen channels for so long.
+    const { synths } = await hostWith(1);
+    const settings = vi.mocked(synths[0].createAudioNode).mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    for (const key of [
+      'midiChannelCount',
+      'polyphony',
+      'initialGain',
+      'midiBankSelect',
+      'chorusActive',
+      'reverbActive',
+      'minNoteLength',
+    ]) {
+      expect(settings).toHaveProperty(key);
+    }
   });
 
   it('gives every instance the same settings', async () => {
     const { synths } = await hostWith(2);
-    expect(synths[1].calls.init).toEqual(synths[0].calls.init);
+    expect(vi.mocked(synths[1].createAudioNode).mock.calls[0]?.[1]).toEqual(
+      vi.mocked(synths[0].createAudioNode).mock.calls[0]?.[1],
+    );
   });
 });
 
 describe('SynthHost', () => {
+  it('gives the synth its settings where the synth is actually built', async () => {
+    /*
+      The bug this pins was silent in every sense.
+
+      `AudioWorkletNodeSynthesizer.init` is an empty method — the synth it
+      stands for is constructed inside the worklet when the *node* is, from
+      `processorOptions.settings`. So settings handed to `init` went nowhere,
+      and the second argument to `createAudioNode` was a ScriptProcessor frame
+      size belonging to the other class. fluidsynth therefore ran on its
+      defaults: sixteen channels instead of 256.
+
+      Sixteen is the one that shows. The allocator puts a second percussion
+      track on channel 25, which then does not exist, and every note written
+      to it is dropped — a track that cannot be heard however loud or soloed,
+      with no error anywhere.
+    */
+    const ctx = stubContext();
+    const synth = stubSynth();
+    const host = new SynthHost({ createSynth: () => synth });
+    await host.init(ctx, {
+      fluidsynthModuleUrl: 'fluid.js',
+      workletModuleUrl: 'worklet.js',
+      soundfont: new Uint8Array(4).buffer,
+      instanceCount: 1,
+    });
+
+    const settings = vi.mocked(synth.createAudioNode).mock.calls[0]?.[1];
+    expect(settings).toMatchObject({ midiChannelCount: 256 });
+    // Enough channels for the drum-capable ones the allocator reaches for.
+    expect((settings as { midiChannelCount: number }).midiChannelCount).toBeGreaterThan(25);
+    expect(settings).toHaveProperty('polyphony');
+  });
+
   it('loads the quiet-module seed, then fluidsynth, then the worklet', async () => {
     // Order is the whole contract here. The seed must precede libfluidsynth so
     // its emscripten module adopts a printErr that drops build-stub notices,
@@ -184,7 +244,7 @@ describe('SynthHost', () => {
     await host.ensureInstances(2);
     host.noteOn(1, 4, 60, 100);
     expect(synths[1].calls.midiNoteOn?.[0]).toEqual([4, 60, 100]);
-    expect(synths[1].calls.setInterpolation?.[0]).toEqual([4]);
+    expect(synths[1].calls.setInterpolation?.[0]).toEqual([4, -1]);
 
     // Idempotent: asking again must not build a third.
     await host.ensureInstances(2);
@@ -272,7 +332,7 @@ describe('SynthHost', () => {
   it('applies interpolation to every instance, since the governor speaks for all of them', async () => {
     const { host, synths } = await hostWith(2);
     host.setInterpolation(4);
-    for (const s of synths) expect(s.calls.setInterpolation?.at(-1)).toEqual([4]);
+    for (const s of synths) expect(s.calls.setInterpolation?.at(-1)).toEqual([4, -1]);
   });
 
   it('silences every instance on allSoundOff', async () => {

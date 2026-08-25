@@ -18,6 +18,8 @@
  * load — for every single export.
  */
 import type { DecodedAudio, RenderPlan } from '@sudobility/music_types';
+import { CC_PAN, CC_VOLUME } from '@sudobility/music_types';
+import { DRUM_BANK } from '@sudobility/music_types';
 import { allocateChannels } from '../playback/channel-allocator.js';
 import { headroomTrimFor, limitPeaks } from '../../shared/mix.js';
 import type { ChannelAssignment } from '../playback/channel-allocator.js';
@@ -39,11 +41,7 @@ const SAMPLE_RATE = 44100;
 const TAIL_SECONDS = 1;
 /** Timing resolution of the render: 128 frames is ~2.9ms at 44.1kHz. */
 const BLOCK_FRAMES = 128;
-const CC_VOLUME = 7;
-const CC_PAN = 10;
 const MAX_CC = 127;
-/** Where General MIDI keeps its drum kits; channel 9 is already there. */
-const DRUM_BANK = 128;
 /** The kit channel 9 defaults to, so a switched channel matches it. */
 const STANDARD_KIT = 0;
 

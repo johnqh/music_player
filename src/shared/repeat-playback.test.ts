@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { changeRepeatsCommand } from '@sudobility/music_types';
 import { sourceTickFor } from '@sudobility/music_types';
-import { twinkleScore } from '../test/fixtures.js';
+import { twinkleScore } from '@sudobility/music_types/test';
 import { playbackPlan } from './plan.js';
 
 /** Twinkle with its first two bars repeated. */
