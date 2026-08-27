@@ -1,6 +1,6 @@
 {
   "name": "@sudobility/music_player",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Playback for ScoreSmith: transport, synth engines and offline rendering, for web and React Native",
   "author": "Sudobility",
   "license": "BUSL-1.1",
@@ -9,11 +9,13 @@
     ".": {
       "react-native": {
         "types": "./dist/rn/index.d.ts",
-        "import": "./dist/rn/index.js"
+        "import": "./dist/rn/index.js",
+        "default": "./dist/rn/index.js"
       },
       "default": {
         "types": "./dist/web/index.d.ts",
-        "import": "./dist/web/index.js"
+        "import": "./dist/web/index.js",
+        "default": "./dist/web/index.js"
       }
     },
     "./core": {
@@ -23,15 +25,18 @@
     },
     "./web": {
       "types": "./dist/web/index.d.ts",
-      "import": "./dist/web/index.js"
+      "import": "./dist/web/index.js",
+      "default": "./dist/web/index.js"
     },
     "./rn": {
       "types": "./dist/rn/index.d.ts",
-      "import": "./dist/rn/index.js"
+      "import": "./dist/rn/index.js",
+      "default": "./dist/rn/index.js"
     },
     "./mocks": {
       "types": "./dist/mocks/index.d.ts",
-      "import": "./dist/mocks/index.js"
+      "import": "./dist/mocks/index.js",
+      "default": "./dist/mocks/index.js"
     },
     "./rn/expression-table": {
       "types": "./dist/rn/playback/expression-table.d.ts",
