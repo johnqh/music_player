@@ -51,6 +51,22 @@ export type RNMusicPlayerOptions = {
    */
   packBase?: string;
   /**
+   * Reads a pack body, given the URL `packBase`/`percussionBase` produced.
+   *
+   * The reason this is a function rather than only a base URL: a shipped native
+   * app should carry its instruments *inside* the bundle, and a bundled file is
+   * not something `fetch` can read — React Native's `fetch` does not handle
+   * `file://` on either platform. An app that copies the packs into its own
+   * bundle supplies this and reads them off disk, and then pressing play needs
+   * no network at all: no third-party host to be down, nothing to tell that
+   * host who is playing what, and no wait on a first note.
+   *
+   * Defaults to `fetch`, which is what a web-ish build or a self-hosted CDN
+   * wants. The URL is still built by `packBase`/`percussionBase`, so a loader
+   * only has to map a URL to bytes however its platform likes.
+   */
+  fetchPack?: (url: string) => Promise<string>;
+  /**
    * Where the drum-kit packs are served from. **Required for percussion**;
    * there is no default because nobody publishes usably-licensed GM percussion.
    */
@@ -65,6 +81,7 @@ export function createMusicPlayer(
     new RNSamplePlaybackEngine({
       packBase: options.packBase,
       percussionBase: options.percussionBase,
+      ...(options.fetchPack ? { fetchPack: options.fetchPack } : {}),
     })
   );
 }
@@ -81,5 +98,9 @@ export function renderSamples(options: RNMusicPlayerOptions = {}) {
   return createRNSoundfontRenderer({
     packBase: options.packBase,
     percussionBase: options.percussionBase,
+    // The same loader as live playback, for the same reason the bases are
+    // shared: an exported file has to be a recording of what was heard, and a
+    // renderer reading different bytes is a different instrument.
+    ...(options.fetchPack ? { fetchPack: options.fetchPack } : {}),
   }).render;
 }
