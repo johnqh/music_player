@@ -1,6 +1,6 @@
 {
   "name": "@sudobility/music_player",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Playback for ScoreSmith: transport, synth engines and offline rendering, for web and React Native",
   "author": "Sudobility",
   "license": "BUSL-1.1",
@@ -73,7 +73,7 @@
     "prepublishOnly": "bun run clean && bun run verify"
   },
   "peerDependencies": {
-    "@sudobility/music_types": "^0.13.11",
+    "@sudobility/music_types": "^0.13.12",
     "js-synthesizer": "^1.13.0",
     "react-native-audio-api": ">=0.13.0"
   },
@@ -87,7 +87,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@sudobility/music_types": "^0.13.11",
+    "@sudobility/music_types": "^0.13.12",
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
