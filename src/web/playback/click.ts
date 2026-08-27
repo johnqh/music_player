@@ -35,7 +35,7 @@ export function scheduleClick(
   context: BaseAudioContext,
   destination: AudioNode,
   atSeconds: number,
-  accent: boolean,
+  accent: boolean
 ): ScheduledClick {
   const oscillator = context.createOscillator();
   const gain = context.createGain();

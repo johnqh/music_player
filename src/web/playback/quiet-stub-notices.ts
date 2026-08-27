@@ -79,8 +79,11 @@ function seedSource(): string {
  * blobs are unavailable, in which case the notices simply remain.
  */
 export function createWorkletQuietModuleUrl(): string | null {
-  if (typeof Blob === 'undefined' || typeof URL?.createObjectURL !== 'function') return null;
-  return URL.createObjectURL(new Blob([seedSource()], { type: 'text/javascript' }));
+  if (typeof Blob === 'undefined' || typeof URL?.createObjectURL !== 'function')
+    return null;
+  return URL.createObjectURL(
+    new Blob([seedSource()], { type: 'text/javascript' })
+  );
 }
 
 /** Seeds the quiet `Module` on the main thread, before libfluidsynth is injected. */

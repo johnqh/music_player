@@ -14,7 +14,7 @@
  * percussion guard below is the one that most needs it.
  */
 import { headroomTrimFor, LIMITER_CEILING_DB } from '../../shared/mix.js';
-import { CHANNELS_PER_INSTANCE } from './channel-allocator.js';
+import { CHANNELS_PER_INSTANCE } from '../../playback/channel-allocator.js';
 import { createWorkletQuietModuleUrl } from './quiet-stub-notices.js';
 import { DRUM_BANK, PERCUSSION_CHANNEL } from '@sudobility/music_types';
 
@@ -90,12 +90,20 @@ export type SynthInstance = {
    * This type described the wrong one, so a frame size was being handed over
    * as settings and every setting silently defaulted. See `grow`.
    */
-  createAudioNode(context: BaseAudioContext, settings: SynthSettings): AudioNode;
+  createAudioNode(
+    context: BaseAudioContext,
+    settings: SynthSettings
+  ): AudioNode;
   loadSFont(data: ArrayBuffer): Promise<number>;
   createSequencer?(): Promise<SynthSequencer>;
   midiNoteOn(channel: number, midi: number, velocity: number): void;
   midiNoteOff(channel: number, midi: number): void;
-  midiProgramSelect(channel: number, sfontId: number, bank: number, preset: number): void;
+  midiProgramSelect(
+    channel: number,
+    sfontId: number,
+    bank: number,
+    preset: number
+  ): void;
   midiControl(channel: number, control: number, value: number): void;
   midiSetChannelType(channel: number, isDrum: boolean): void;
   /** `-1` is every channel. Pass it rather than omitting the argument. */
@@ -111,9 +119,15 @@ export type SynthSequencer = {
   sendEventAt(
     event:
       | { type: 'noteon'; channel: number; key: number; vel: number }
-      | { type: 'note'; channel: number; key: number; vel: number; duration: number },
+      | {
+          type: 'note';
+          channel: number;
+          key: number;
+          vel: number;
+          duration: number;
+        },
     tick: number,
-    isAbsolute: boolean,
+    isAbsolute: boolean
   ): void;
   removeAllEvents(): void;
   close(): void;
@@ -161,10 +175,13 @@ export class SynthHost {
     private readonly deps: {
       /** May be async: the real factory imports `js-synthesizer` on first use. */
       createSynth: () => SynthInstance | Promise<SynthInstance>;
-    },
+    }
   ) {}
 
-  async init(context: BaseAudioContext, options: SynthHostOptions): Promise<void> {
+  async init(
+    context: BaseAudioContext,
+    options: SynthHostOptions
+  ): Promise<void> {
     // Before libfluidsynth, so its emscripten module adopts a printErr that
     // drops the build-stub notices. Best-effort: if blobs are unavailable the
     // notices stay and nothing else changes.
@@ -265,7 +282,9 @@ export class SynthHost {
     }
   }
 
-  private async createSequencerFor(synth: SynthInstance): Promise<SynthSequencer | null> {
+  private async createSequencerFor(
+    synth: SynthInstance
+  ): Promise<SynthSequencer | null> {
     if (!synth.createSequencer) return null;
     try {
       const sequencer = await synth.createSequencer();
@@ -286,7 +305,11 @@ export class SynthHost {
    * other channel does, which is what lets a second drum track share an
    * instance rather than costing a whole synth for its own channel 9.
    */
-  setChannelPercussion(instance: number, channel: number, kit = STANDARD_KIT): void {
+  setChannelPercussion(
+    instance: number,
+    channel: number,
+    kit = STANDARD_KIT
+  ): void {
     this.percussionChannels.add(`${instance}:${channel}`);
     const synth = this.synths[instance];
     if (!synth) return;
@@ -313,7 +336,12 @@ export class SynthHost {
     // wrong. The older rule, "never select a program on a percussion channel",
     // was too broad: it is selecting from the *melodic* bank that breaks a drum
     // channel, and that one is still refused in `programSelect`.
-    synth.midiProgramSelect(channel, this.sfontIds[instance], DRUM_BANK, STANDARD_KIT);
+    synth.midiProgramSelect(
+      channel,
+      this.sfontIds[instance],
+      DRUM_BANK,
+      STANDARD_KIT
+    );
     if (kit !== STANDARD_KIT) {
       synth.midiProgramSelect(channel, this.sfontIds[instance], DRUM_BANK, kit);
     }
@@ -340,10 +368,20 @@ export class SynthHost {
     if (this.percussionChannels.delete(`${instance}:${channel}`)) {
       this.synths[instance]?.midiSetChannelType(channel, false);
     }
-    this.synths[instance]?.midiProgramSelect(channel, this.sfontIds[instance], 0, program);
+    this.synths[instance]?.midiProgramSelect(
+      channel,
+      this.sfontIds[instance],
+      0,
+      program
+    );
   }
 
-  noteOn(instance: number, channel: number, midi: number, velocity: number): void {
+  noteOn(
+    instance: number,
+    channel: number,
+    midi: number,
+    velocity: number
+  ): void {
     this.synths[instance]?.midiNoteOn(channel, midi, velocity);
   }
 
@@ -367,7 +405,7 @@ export class SynthHost {
     midi: number,
     velocity: number,
     delaySeconds: number,
-    durationSeconds: number,
+    durationSeconds: number
   ): void {
     const sequencer = this.sequencers[instance];
     if (!sequencer) {
@@ -388,7 +426,7 @@ export class SynthHost {
         duration: Math.max(1, Math.round(durationSeconds * 1000)),
       },
       Math.max(0, Math.round(delaySeconds * 1000)),
-      false,
+      false
     );
   }
 
@@ -396,7 +434,12 @@ export class SynthHost {
     this.synths[instance]?.midiNoteOff(channel, midi);
   }
 
-  controlChange(instance: number, channel: number, control: number, value: number): void {
+  controlChange(
+    instance: number,
+    channel: number,
+    control: number,
+    value: number
+  ): void {
     this.synths[instance]?.midiControl(channel, control, value);
   }
 
@@ -409,7 +452,8 @@ export class SynthHost {
   /** The governor's one confirmed knob; applies to every instance at once. */
   setInterpolation(order: number): void {
     this.interpolation = order;
-    for (const synth of this.synths) synth.setInterpolation(order, ALL_CHANNELS);
+    for (const synth of this.synths)
+      synth.setInterpolation(order, ALL_CHANNELS);
   }
 
   setMasterVolume(volume: number): void {
@@ -424,7 +468,9 @@ export class SynthHost {
   }
 
   private applyMasterGain(): void {
-    if (this.master) this.master.gain.value = this.masterVolume * headroomTrimFor(this.trackCount);
+    if (this.master)
+      this.master.gain.value =
+        this.masterVolume * headroomTrimFor(this.trackCount);
   }
 
   dispose(): void {

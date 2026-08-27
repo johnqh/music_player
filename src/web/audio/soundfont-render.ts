@@ -20,9 +20,9 @@
 import type { DecodedAudio, RenderPlan } from '@sudobility/music_types';
 import { CC_PAN, CC_VOLUME } from '@sudobility/music_types';
 import { DRUM_BANK } from '@sudobility/music_types';
-import { allocateChannels } from '../playback/channel-allocator.js';
+import { allocateChannels } from '../../playback/channel-allocator.js';
 import { headroomTrimFor, limitPeaks } from '../../shared/mix.js';
-import type { ChannelAssignment } from '../playback/channel-allocator.js';
+import type { ChannelAssignment } from '../../playback/channel-allocator.js';
 import { getOfflineSynth } from './offline-synth.js';
 import type { LoadedOfflineSynth } from './offline-synth.js';
 

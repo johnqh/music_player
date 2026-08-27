@@ -16,7 +16,7 @@
  * This one runs on the main thread rather than in a worklet, which is fine
  * precisely because it is offline — there is no audio callback to starve.
  */
-import { CHANNELS_PER_INSTANCE } from '../playback/channel-allocator.js';
+import { CHANNELS_PER_INSTANCE } from '../../playback/channel-allocator.js';
 import { seedMainThreadQuietModule } from '../playback/quiet-stub-notices.js';
 import type { SynthesizerLike } from './synth-types.js';
 

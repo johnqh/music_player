@@ -26,62 +26,27 @@ import type {
   AuditionVoice,
   PlaybackEngine,
   PlaybackObserver,
-} from '../../engine.js';
-import { allocateChannels, CHANNELS_PER_INSTANCE } from './channel-allocator.js';
+} from '../engine.js';
+import {
+  allocateChannels,
+  CHANNELS_PER_INSTANCE,
+} from './channel-allocator.js';
 import type { ChannelAssignment } from './channel-allocator.js';
 import { PlaybackClock } from './clock.js';
-import { NoteQueue } from '../../shared/note-queue.js';
-import { SoundingSet } from '../../shared/sounding-set.js';
+import { NoteQueue } from '../shared/note-queue.js';
+import { SoundingSet } from '../shared/sounding-set.js';
 import {
   SOUNDING_INTERVAL_MS,
   visualSoundingOffsetSeconds,
-} from '../../shared/visual-sync.js';
-import { scheduleClick } from './click.js';
-import type { ScheduledClick } from './click.js';
+} from '../shared/visual-sync.js';
 import { Governor } from './governor.js';
-import { loadSoundfont, openSoundfontCache } from './soundfont-loader.js';
-import type { LoadProgress } from './soundfont-loader.js';
+import type { ScheduledClick, SynthBackend } from './synth-backend.js';
 import { CC_PAN, CC_VOLUME } from '@sudobility/music_types';
 
-/** The slice of `SynthHost` this engine drives, so tests can pass a stub. */
-export type SynthHostLike = {
-  init(
-    context: BaseAudioContext,
-    options: {
-      fluidsynthModuleUrl: string;
-      workletModuleUrl: string;
-      soundfont: ArrayBuffer;
-      instanceCount: number;
-    },
-  ): Promise<void>;
-  ensureInstances(count: number): Promise<void>;
-  setChannelPercussion(instance: number, channel: number, kit?: number): void;
-  programSelect(instance: number, channel: number, program: number): void;
-  noteOn(instance: number, channel: number, midi: number, velocity: number): void;
-  noteAt(
-    instance: number,
-    channel: number,
-    midi: number,
-    velocity: number,
-    delaySeconds: number,
-    durationSeconds: number,
-  ): void;
-  noteOff(instance: number, channel: number, midi: number): void;
-  controlChange(instance: number, channel: number, control: number, value: number): void;
-  allSoundOff(): void;
-  setInterpolation(order: number): void;
-  setMasterVolume(volume: number): void;
-  setTrackCount(count: number): void;
-  dispose(): void;
-};
-
 export type SoundfontEngineDeps = {
-  host: SynthHostLike;
-  moduleUrls: { fluidsynth: string; worklet: string };
-  fontUrl: string;
-  loadFont?: (url: string, onProgress?: (progress: LoadProgress) => void) => Promise<ArrayBuffer>;
-  createContext?: () => AudioContext;
-  /** Defaults to the audio context's own clock, which is what the audio is rendered against. */
+  /** Everything that makes sound: the synths, the clock, the font, the click. */
+  backend: SynthBackend;
+  /** Defaults to the backend's own clock, which is what the audio is rendered against. */
   now?: () => number;
   /** Starts the pump and returns a function that stops it. */
   startPump?: (tick: () => void, intervalMs: number) => () => void;
@@ -122,15 +87,6 @@ const MAX_CC = 127;
 // taken on a sixteen-track score, and handed auditions a channel a track owned.
 /** General MIDI's drum channel, which an audition must not borrow. */
 const GM_PERCUSSION_CHANNEL = 9;
-/**
- * How much of the progress bar the download accounts for.
- *
- * The rest is the synth digesting the font, which is the longer half and
- * reports nothing. Measured at roughly five seconds against a download that is
- * near-instant on a fast connection, so this is deliberately conservative — a
- * bar that reaches the end and then waits is worse than one that stops early.
- */
-const FETCH_SHARE = 0.5;
 /** A pump failing every tick must not also flood the console twenty times a second. */
 const MAX_REPORTED_TICK_FAILURES = 3;
 
@@ -152,14 +108,14 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   /** When the pump was last expected to run, for measuring how late it is. */
   private nextPumpDueAt: number | null = null;
   private readonly clock: PlaybackClock;
-  private readonly deps: Required<Pick<SoundfontEngineDeps, 'loadFont' | 'startPump'>> & SoundfontEngineDeps;
+  private readonly deps: Required<Pick<SoundfontEngineDeps, 'startPump'>> &
+    SoundfontEngineDeps;
 
-  private context: AudioContext | null = null;
   private plan: PlaybackPlan | null = null;
   /** Replaced on every `load`. The default is 120 BPM at ppq 480, as before. */
   private tempo: TempoConversion = {
-    ticksToSeconds: (tick) => tick / 960,
-    secondsToTicks: (seconds) => seconds * 960,
+    ticksToSeconds: tick => tick / 960,
+    secondsToTicks: seconds => seconds * 960,
   };
   private tracks = new Map<string, TrackState>();
   private observer: PlaybackObserver | null = null;
@@ -221,15 +177,15 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
    * on it and left that part playing the wrong instrument until the next edit
    * reloaded the score.
    */
-  private auditionChannel: ChannelAssignment = { instance: 0, channel: 15, needsDrumTypeSwitch: false };
+  private auditionChannel: ChannelAssignment = {
+    instance: 0,
+    channel: 15,
+    needsDrumTypeSwitch: false,
+  };
 
   constructor(deps: SoundfontEngineDeps) {
     this.deps = {
       ...deps,
-      loadFont:
-        deps.loadFont ??
-        (async (url, onProgress) =>
-          loadSoundfont(url, { cache: await openSoundfontCache(), onProgress })),
       startPump:
         deps.startPump ??
         ((tick, ms) => {
@@ -240,12 +196,14 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     this.clock = new PlaybackClock(() => this.now());
     // The governor's only knob is interpolation order; see governor.ts for why
     // polyphony is not a second rung.
-    this.governor = new Governor({ onChange: (order) => this.deps.host.setInterpolation(order) });
+    this.governor = new Governor({
+      onChange: order => this.deps.backend.setInterpolation(order),
+    });
   }
 
   private now(): number {
     if (this.deps.now) return this.deps.now();
-    return this.context?.currentTime ?? 0;
+    return this.deps.backend.now();
   }
 
   private secondsForTick(tick: number): number {
@@ -278,39 +236,27 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
 
   private async bringUp(): Promise<void> {
     if (this.initialized) return;
-    this.context ??= this.deps.createContext?.() ?? new AudioContext();
-    await this.resumeContext();
-    if (!this.contextCanRun()) return;
-
     try {
-      this.reportLoad({ status: 'loading', fraction: 0 });
-      const soundfont = await this.deps.loadFont(this.deps.fontUrl, ({ loaded, total }) => {
-        // Fetching is the measurable half. Held below 1 so the bar does not sit
-        // at "done" through the seconds of decoding that follow.
-        this.reportLoad({ status: 'loading', fraction: total > 0 ? (loaded / total) * FETCH_SHARE : null });
-      });
-
-      // Handing the font to fluidsynth takes seconds and reports nothing along
-      // the way, so this is the honest answer: busy, no idea how long.
-      this.reportLoad({ status: 'loading', fraction: null });
-      await this.deps.host.init(this.context, {
-        fluidsynthModuleUrl: this.deps.moduleUrls.fluidsynth,
-        workletModuleUrl: this.deps.moduleUrls.worklet,
-        soundfont,
-        // What the score already loaded needs, not a fixed one: a score with
-        // more parts than a single synth can address puts tracks on instance 1,
-        // and a synth that was never opened plays them silently.
+      const result = await this.deps.backend.prepare({
         instanceCount: this.instanceCount,
+        onProgress: state => this.reportLoad(state),
       });
+      // Not a failure: the backend could not come up yet and said so, which on
+      // the web means a context still waiting for a user gesture. `play()` and
+      // `noteOn()` are gestures and will get it running.
+      if (result === 'deferred') return;
       this.initialized = true;
-      // The score may have arrived while the context was still suspended; the
-      // host has not been told about it yet.
+      // The score may have arrived while the backend was still deferred; it
+      // has not been told about it yet.
       if (this.plan) this.applyPlanToHost(this.plan.tracks);
       this.reportLoad({ status: 'ready' });
     } catch (error) {
       // Reported rather than swallowed: a font that will not load is the
       // difference between silence-with-a-reason and silence.
-      this.reportLoad({ status: 'failed', message: error instanceof Error ? error.message : String(error) });
+      this.reportLoad({
+        status: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -329,23 +275,6 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     this.observer?.onLoadStateChange?.(state);
   }
 
-  /** Best effort: without a user gesture behind it this is allowed to fail. */
-  private async resumeContext(): Promise<void> {
-    const context = this.context as { state?: string; resume?: () => Promise<void> } | undefined;
-    if (!context?.resume || context.state === 'running') return;
-    try {
-      await context.resume();
-    } catch {
-      // No gesture yet. `contextCanRun` will see it and defer the rest.
-    }
-  }
-
-  /** A stub context in a test has no `state`; only a real suspended one blocks. */
-  private contextCanRun(): boolean {
-    const state = (this.context as { state?: string } | undefined)?.state;
-    return state === undefined || state === 'running';
-  }
-
   async load(plan: PlaybackPlan): Promise<void> {
     this.plan = plan;
     this.tempo = plan.tempo;
@@ -353,15 +282,15 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     this.queue.load(notes);
     this.lastNoteEndSeconds = notes.reduce(
       (end, n) => Math.max(end, this.secondsForTick(n.tick + n.durTicks)),
-      0,
+      0
     );
-    this.sounding.load(notes, (tick) => this.secondsForTick(tick));
+    this.sounding.load(notes, tick => this.secondsForTick(tick));
     this.clicks = plan.clicks;
     this.clickCursor = 0;
     this.seek(0);
 
     const { assignments, instanceCount } = allocateChannels(
-      plan.tracks.map((t) => ({ id: t.id, isPercussion: t.isPercussion })),
+      plan.tracks.map(t => ({ id: t.id, isPercussion: t.isPercussion }))
     );
     this.instanceCount = instanceCount;
 
@@ -369,7 +298,12 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     for (const track of plan.tracks) {
       const assignment = assignments.get(track.id);
       if (!assignment) continue;
-      this.tracks.set(track.id, { assignment, volume: track.volume, muted: track.muted, solo: track.solo });
+      this.tracks.set(track.id, {
+        assignment,
+        volume: track.volume,
+        muted: track.muted,
+        solo: track.solo,
+      });
     }
     this.auditionChannel = this.pickAuditionChannel();
 
@@ -378,7 +312,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     if (this.initialized) {
       // A score can grow past what the open synths can address, and the tracks
       // beyond them are silent until this resolves.
-      await this.deps.host.ensureInstances(this.instanceCount);
+      await this.deps.backend.ensureInstances(this.instanceCount);
       this.applyPlanToHost(plan.tracks);
     } else void this.initialize();
   }
@@ -397,17 +331,27 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
    */
   private pickAuditionChannel(): ChannelAssignment {
     const owned = new Set(
-      [...this.tracks.values()].map((t) => `${t.assignment.instance}:${t.assignment.channel}`),
+      [...this.tracks.values()].map(
+        t => `${t.assignment.instance}:${t.assignment.channel}`
+      )
     );
     for (let instance = 0; instance < this.instanceCount; instance += 1) {
-      for (let channel = CHANNELS_PER_INSTANCE - 1; channel >= 0; channel -= 1) {
+      for (
+        let channel = CHANNELS_PER_INSTANCE - 1;
+        channel >= 0;
+        channel -= 1
+      ) {
         if (channel === GM_PERCUSSION_CHANNEL) continue;
         if (!owned.has(`${instance}:${channel}`)) {
           return { instance, channel, needsDrumTypeSwitch: false };
         }
       }
     }
-    return { instance: 0, channel: CHANNELS_PER_INSTANCE - 1, needsDrumTypeSwitch: false };
+    return {
+      instance: 0,
+      channel: CHANNELS_PER_INSTANCE - 1,
+      needsDrumTypeSwitch: false,
+    };
   }
 
   /** Tells the host each track's program, percussion flag, pan and level. */
@@ -419,26 +363,44 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
       if (assignment.needsDrumTypeSwitch || track.isPercussion) {
         // General MIDI selects the drum kit with a program change on the drum
         // channel, so the track's program is its kit — Room, TR-808, Jazz.
-        this.deps.host.setChannelPercussion(assignment.instance, assignment.channel, track.midiProgram);
+        this.deps.backend.setChannelPercussion(
+          assignment.instance,
+          assignment.channel,
+          track.midiProgram
+        );
       } else {
         // A soundfont needs only the GM program number. The program-versus-name
         // rule the old engine used existed to choose among hand-built synth
         // voices and has no meaning here.
-        this.deps.host.programSelect(assignment.instance, assignment.channel, track.midiProgram);
+        this.deps.backend.programSelect(
+          assignment.instance,
+          assignment.channel,
+          track.midiProgram
+        );
       }
-      this.deps.host.controlChange(assignment.instance, assignment.channel, CC_PAN, panToCc(track.pan));
+      this.deps.backend.controlChange(
+        assignment.instance,
+        assignment.channel,
+        CC_PAN,
+        panToCc(track.pan)
+      );
     }
-    this.deps.host.setTrackCount(tracks.length);
+    this.deps.backend.setTrackCount(tracks.length);
     this.applyTrackLevels();
   }
 
   /** Volume, mute and solo all resolve to one CC7 value per channel. */
   private applyTrackLevels(): void {
-    const anySolo = [...this.tracks.values()].some((t) => t.solo);
+    const anySolo = [...this.tracks.values()].some(t => t.solo);
     for (const state of this.tracks.values()) {
       const audible = anySolo ? state.solo : !state.muted;
       const value = audible ? Math.round(state.volume * MAX_CC) : 0;
-      this.deps.host.controlChange(state.assignment.instance, state.assignment.channel, CC_VOLUME, value);
+      this.deps.backend.controlChange(
+        state.assignment.instance,
+        state.assignment.channel,
+        CC_VOLUME,
+        value
+      );
     }
   }
 
@@ -496,7 +458,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     this.startAtSeconds = null;
     this.clock.stop();
     this.endPump();
-    this.deps.host.allSoundOff();
+    this.deps.backend.allSoundOff();
     this.cancelPendingClicks();
     this.clearSounding(0);
     this.queue.seekToTick(0);
@@ -509,9 +471,9 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     const seconds = this.secondsForTick(tick);
     this.clock.seek(seconds);
     this.queue.seekToTick(tick);
-    this.clickCursor = this.clicks.findIndex((c) => c.tick >= tick);
+    this.clickCursor = this.clicks.findIndex(c => c.tick >= tick);
     if (this.clickCursor < 0) this.clickCursor = this.clicks.length;
-    this.deps.host.allSoundOff();
+    this.deps.backend.allSoundOff();
     this.cancelPendingClicks();
     this.clearSounding(seconds);
 
@@ -545,7 +507,8 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     // Banks the position first, so the seek below reads where we actually are
     // rather than a position rescaled retroactively.
     this.clock.setRate(multiplier);
-    if (this.stopPump) this.seek(this.tickForSeconds(this.clock.positionSeconds));
+    if (this.stopPump)
+      this.seek(this.tickForSeconds(this.clock.positionSeconds));
   }
 
   setLoop(range: ScoreRange | null): void {
@@ -586,11 +549,11 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
       state.volume = track.volume;
       state.muted = track.muted;
       state.solo = track.solo;
-      this.deps.host.controlChange(
+      this.deps.backend.controlChange(
         state.assignment.instance,
         state.assignment.channel,
         CC_PAN,
-        panToCc(track.pan),
+        panToCc(track.pan)
       );
     }
     this.applyTrackLevels();
@@ -604,7 +567,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   }
 
   setMasterVolume(volume: number): void {
-    this.deps.host.setMasterVolume(volume);
+    this.deps.backend.setMasterVolume(volume);
   }
 
   noteOn(midi: number, voice: AuditionVoice): void {
@@ -620,12 +583,25 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     if (voice.isPercussion) {
       // `voice.program` is the kit, resolved by the caller, so this sounds the
       // kit the track actually plays rather than whatever Standard it had.
-      this.deps.host.setChannelPercussion(assignment.instance, assignment.channel, voice.program);
+      this.deps.backend.setChannelPercussion(
+        assignment.instance,
+        assignment.channel,
+        voice.program
+      );
     } else {
       // Switches the channel back off drums first, if the last audition was one.
-      this.deps.host.programSelect(assignment.instance, assignment.channel, voice.program);
+      this.deps.backend.programSelect(
+        assignment.instance,
+        assignment.channel,
+        voice.program
+      );
     }
-    this.deps.host.noteOn(assignment.instance, assignment.channel, midi, 100);
+    this.deps.backend.noteOn(
+      assignment.instance,
+      assignment.channel,
+      midi,
+      100
+    );
     this.auditionHeld.set(midi, assignment);
   }
 
@@ -633,7 +609,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     const assignment = this.auditionHeld.get(midi);
     if (!assignment) return;
     this.auditionHeld.delete(midi);
-    this.deps.host.noteOff(assignment.instance, assignment.channel, midi);
+    this.deps.backend.noteOff(assignment.instance, assignment.channel, midi);
   }
 
   setObserver(observer: PlaybackObserver | null): void {
@@ -643,9 +619,8 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   dispose(): void {
     this.endPump();
     this.cancelPendingClicks();
-    this.deps.host.dispose();
-    this.context?.close?.();
-    this.context = null;
+    this.deps.backend.dispose();
+    this.deps.backend.dispose();
     this.plan = null;
     this.observer = null;
     this.initialized = false;
@@ -722,7 +697,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
       const { instance, channel } = state.assignment;
       const atSeconds = this.secondsForTick(note.tick);
       const endSeconds = this.secondsForTick(note.tick + note.durTicks);
-      this.deps.host.noteAt(
+      this.deps.backend.noteAt(
         instance,
         channel,
         note.midi,
@@ -731,7 +706,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
         // stall sounds at once rather than being dropped, because the sequencer
         // still holds its release.
         (atSeconds - position) / speed,
-        (endSeconds - atSeconds) / speed,
+        (endSeconds - atSeconds) / speed
       );
     }
 
@@ -791,9 +766,11 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     // Forget the ones that have finished sounding, so the list tracks what is
     // still cancellable rather than growing for the length of the piece.
     if (this.pendingClicks.length > 0) {
-      this.pendingClicks = this.pendingClicks.filter((click) => click.endsAt > now);
+      this.pendingClicks = this.pendingClicks.filter(
+        click => click.endsAt > now
+      );
     }
-    if (!this.metronomeEnabled || !this.context) return;
+    if (!this.metronomeEnabled) return;
     while (this.clickCursor < this.clicks.length) {
       const click = this.clicks[this.clickCursor];
       if (click.tick > untilTick) break;
@@ -801,12 +778,10 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
       this.clickCursor += 1;
       if (atSeconds < position) continue; // already gone by; do not stack it up
       this.pendingClicks.push(
-        scheduleClick(
-          this.context,
-          this.context.destination,
+        this.deps.backend.scheduleClick(
           now + Math.max(0, (atSeconds - position) / this.playbackSpeed),
-          click.accent,
-        ),
+          click.accent
+        )
       );
     }
   }
@@ -869,7 +844,9 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     if (sinceLastReport >= 0 && sinceLastReport < POSITION_TICK_INTERVAL_MS)
       return;
     this.lastReportedAt = nowMs;
-    this.observer?.onPositionTick(Math.max(0, Math.round(this.tickForSeconds(position))));
+    this.observer?.onPositionTick(
+      Math.max(0, Math.round(this.tickForSeconds(position)))
+    );
   }
 
   /**
@@ -881,7 +858,8 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
    */
   private reportSounding(): void {
     const at =
-      this.clock.positionSeconds + visualSoundingOffsetSeconds(this.context?.outputLatency);
+      this.clock.positionSeconds +
+      visualSoundingOffsetSeconds(this.deps.backend.outputLatency());
     const sounding = this.sounding.advanceTo(at);
     if (sounding) this.observer?.onActiveNotes(sounding);
   }

@@ -1,4 +1,7 @@
-import { MIDI_CHANNELS_PER_PORT, PERCUSSION_CHANNEL } from '@sudobility/music_types';
+import {
+  MIDI_CHANNELS_PER_PORT,
+  PERCUSSION_CHANNEL,
+} from '@sudobility/music_types';
 /**
  * Which synth instance and MIDI channel each track plays on.
  *
@@ -69,7 +72,12 @@ export function allocateChannels(tracks: readonly AllocatorTrack[]): {
     return null;
   };
 
-  const claim = (id: string, instance: number, channel: number, isPercussion: boolean): void => {
+  const claim = (
+    id: string,
+    instance: number,
+    channel: number,
+    isPercussion: boolean
+  ): void => {
     taken[instance].add(channel);
     assignments.set(id, {
       instance,
@@ -87,7 +95,11 @@ export function allocateChannels(tracks: readonly AllocatorTrack[]): {
   };
 
   /** Places `id` on the first instance with a free channel of the wanted kind, opening one if none has. */
-  const place = (id: string, wantDrum: boolean, isPercussion: boolean): void => {
+  const place = (
+    id: string,
+    wantDrum: boolean,
+    isPercussion: boolean
+  ): void => {
     for (let instance = 0; instance < taken.length; instance += 1) {
       const channel = freeChannel(instance, wantDrum);
       if (channel !== null) {
@@ -97,7 +109,12 @@ export function allocateChannels(tracks: readonly AllocatorTrack[]): {
     }
     taken.push(new Set());
     // A fresh instance always has a free channel of either kind.
-    claim(id, taken.length - 1, freeChannel(taken.length - 1, wantDrum)!, isPercussion);
+    claim(
+      id,
+      taken.length - 1,
+      freeChannel(taken.length - 1, wantDrum)!,
+      isPercussion
+    );
   };
 
   // Percussion first, so the drum-capable channels reach the tracks that need
@@ -106,7 +123,9 @@ export function allocateChannels(tracks: readonly AllocatorTrack[]): {
     if (!track.isPercussion) continue;
     // Prefer a drum-capable channel; fall back to an ordinary one, switched
     // explicitly, rather than opening an instance for the sake of one channel.
-    const hasDrumSlot = taken.some((_, instance) => freeChannel(instance, true) !== null);
+    const hasDrumSlot = taken.some(
+      (_, instance) => freeChannel(instance, true) !== null
+    );
     place(track.id, hasDrumSlot, true);
   }
 

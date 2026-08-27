@@ -9,20 +9,35 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { planOfTracks } from '../../shared/test-plan.js';
-import { SoundfontPlaybackEngine } from './soundfont-engine.js';
-import { allocateChannels } from './channel-allocator.js';
+import { WebSynthBackend } from './web-backend.js';
+import { SoundfontPlaybackEngine } from '../../playback/soundfont-engine.js';
+import { allocateChannels } from '../../playback/channel-allocator.js';
 
 function stubHost() {
   const noteOn = vi.fn();
   return {
-    init: vi.fn(async (_context: BaseAudioContext, _options: { instanceCount: number }) => {}),
+    init: vi.fn(
+      async (
+        _context: BaseAudioContext,
+        _options: { instanceCount: number }
+      ) => {}
+    ),
     ensureInstances: vi.fn(async () => {}),
     setChannelPercussion: vi.fn(),
     programSelect: vi.fn(),
     noteOn,
-    noteAt: vi.fn((instance: number, channel: number, midi: number, velocity: number, _delaySeconds: number, _durationSeconds: number) => {
-      noteOn(instance, channel, midi, velocity);
-    }),
+    noteAt: vi.fn(
+      (
+        instance: number,
+        channel: number,
+        midi: number,
+        velocity: number,
+        _delaySeconds: number,
+        _durationSeconds: number
+      ) => {
+        noteOn(instance, channel, midi, velocity);
+      }
+    ),
     noteOff: vi.fn(),
     controlChange: vi.fn(),
     allSoundOff: vi.fn(),
@@ -47,17 +62,18 @@ function stubContext() {
 function engineWith() {
   const host = stubHost();
   const engine = new SoundfontPlaybackEngine({
-    host,
-    moduleUrls: { fluidsynth: 'f.js', worklet: 'w.js' },
-    fontUrl: 'font.sf3',
-    loadFont: async () => new Uint8Array(4).buffer,
-    createContext: () => stubContext(),
+    backend: new WebSynthBackend({
+      host,
+      moduleUrls: { fluidsynth: 'f.js', worklet: 'w.js' },
+      fontUrl: 'font.sf3',
+      loadFont: async () => new Uint8Array(4).buffer,
+      createContext: () => stubContext(),
+    }),
     now: () => 0,
     startPump: () => () => {},
   });
   return { host, engine };
 }
-
 
 describe('instrument routing', () => {
   it('opens as many synths as the allocation needs, not always one', async () => {
@@ -72,7 +88,7 @@ describe('instrument routing', () => {
     await engine.initialize();
 
     const { instanceCount } = allocateChannels(
-      plan.tracks.map((t) => ({ id: t.id, isPercussion: false })),
+      plan.tracks.map(t => ({ id: t.id, isPercussion: false }))
     );
     expect(instanceCount).toBe(2);
     expect(host.init.mock.calls[0][1].instanceCount).toBe(2);
@@ -106,15 +122,22 @@ describe('instrument routing', () => {
     await engine.initialize();
 
     const { assignments } = allocateChannels(
-      plan.tracks.map((t) => ({ id: t.id, isPercussion: false })),
+      plan.tracks.map(t => ({ id: t.id, isPercussion: false }))
     );
-    const owned = new Set([...assignments.values()].map((a) => `${a.instance}:${a.channel}`));
+    const owned = new Set(
+      [...assignments.values()].map(a => `${a.instance}:${a.channel}`)
+    );
 
     host.programSelect.mockClear();
     engine.noteOn(60, { program: 12, name: 'x', isPercussion: false });
     const [instance, channel] = host.programSelect.mock.calls[0];
     expect(owned.has(`${instance}:${channel}`)).toBe(false);
-    expect(host.noteOn).toHaveBeenCalledWith(instance, channel, 60, expect.any(Number));
+    expect(host.noteOn).toHaveBeenCalledWith(
+      instance,
+      channel,
+      60,
+      expect.any(Number)
+    );
   });
 
   it('auditions a percussion track on its own kit rather than channel 9', async () => {
@@ -130,6 +153,11 @@ describe('instrument routing', () => {
     const [instance, channel, kit] = host.setChannelPercussion.mock.calls[0];
     expect(kit).toBe(25);
     expect(channel).not.toBe(9);
-    expect(host.noteOn).toHaveBeenCalledWith(instance, channel, 38, expect.any(Number));
+    expect(host.noteOn).toHaveBeenCalledWith(
+      instance,
+      channel,
+      38,
+      expect.any(Number)
+    );
   });
 });

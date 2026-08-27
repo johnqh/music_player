@@ -34,14 +34,19 @@ export async function openSoundfontCache(): Promise<Cache | null> {
 
 export async function loadSoundfont(
   url: string,
-  opts: { onProgress?: (progress: LoadProgress) => void; cache?: Cache | null } = {},
+  opts: {
+    onProgress?: (progress: LoadProgress) => void;
+    cache?: Cache | null;
+  } = {}
 ): Promise<ArrayBuffer> {
   const cached = await opts.cache?.match(url);
   if (cached) return await cached.arrayBuffer();
 
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Soundfont fetch failed: ${response.status} ${response.statusText} (${url})`);
+    throw new Error(
+      `Soundfont fetch failed: ${response.status} ${response.statusText} (${url})`
+    );
   }
 
   const declared = Number(response.headers.get('content-length') ?? 0);
@@ -50,9 +55,15 @@ export async function loadSoundfont(
   const buffer = await readWithProgress(response, declared, opts.onProgress);
   // Rebuilt rather than cloned: the body has already been consumed to report
   // progress, and a body can only be read once.
-  await opts.cache?.put(url, new Response(buffer, { headers: response.headers }));
+  await opts.cache?.put(
+    url,
+    new Response(buffer, { headers: response.headers })
+  );
 
-  opts.onProgress?.({ loaded: buffer.byteLength, total: declared || buffer.byteLength });
+  opts.onProgress?.({
+    loaded: buffer.byteLength,
+    total: declared || buffer.byteLength,
+  });
   return buffer;
 }
 
@@ -67,7 +78,7 @@ export async function loadSoundfont(
 async function readWithProgress(
   response: Response,
   declared: number,
-  onProgress?: (progress: LoadProgress) => void,
+  onProgress?: (progress: LoadProgress) => void
 ): Promise<ArrayBuffer> {
   const reader = response.body?.getReader();
   if (!reader) return await response.arrayBuffer();

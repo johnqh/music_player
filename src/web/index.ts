@@ -4,7 +4,8 @@
  * Resolved by any bundler that is not Metro, through the `default` branch of
  * this package's export condition.
  */
-import { SoundfontPlaybackEngine } from './playback/soundfont-engine.js';
+import { SoundfontPlaybackEngine } from '../playback/soundfont-engine.js';
+import { WebSynthBackend } from './playback/web-backend.js';
 import { SynthHost } from './playback/synth-host.js';
 import type { SynthInstance } from './playback/synth-host.js';
 import {
@@ -60,12 +61,14 @@ export function createMusicPlayer({
 }): MusicPlayer {
   return new MusicPlayer(
     new SoundfontPlaybackEngine({
-      host: new SynthHost({ createSynth: createWorkletSynth }),
-      moduleUrls: {
-        fluidsynth: soundfont.fluidsynthModuleUrl,
-        worklet: soundfont.workletModuleUrl,
-      },
-      fontUrl: soundfont.fontUrl,
+      backend: new WebSynthBackend({
+        host: new SynthHost({ createSynth: createWorkletSynth }),
+        moduleUrls: {
+          fluidsynth: soundfont.fluidsynthModuleUrl,
+          worklet: soundfont.workletModuleUrl,
+        },
+        fontUrl: soundfont.fontUrl,
+      }),
     })
   );
 }

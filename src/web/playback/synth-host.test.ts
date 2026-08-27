@@ -3,7 +3,9 @@ import { SynthHost } from './synth-host.js';
 import type { SynthInstance, SynthSequencer } from './synth-host.js';
 
 /** A stand-in for one `AudioWorkletNodeSynthesizer`, recording what it was told. */
-function stubSynth(sequencer?: SynthSequencer): SynthInstance & { calls: Record<string, unknown[][]> } {
+function stubSynth(
+  sequencer?: SynthSequencer
+): SynthInstance & { calls: Record<string, unknown[][]> } {
   const calls: Record<string, unknown[][]> = {};
   const record =
     (name: string) =>
@@ -13,7 +15,9 @@ function stubSynth(sequencer?: SynthSequencer): SynthInstance & { calls: Record<
   const synth: SynthInstance & { calls: Record<string, unknown[][]> } = {
     calls,
     init: record('init'),
-    createAudioNode: vi.fn(() => ({ connect: vi.fn() }) as unknown as AudioNode),
+    createAudioNode: vi.fn(
+      () => ({ connect: vi.fn() }) as unknown as AudioNode
+    ),
     loadSFont: vi.fn(async () => 1),
     midiNoteOn: record('midiNoteOn'),
     midiNoteOff: record('midiNoteOff'),
@@ -59,11 +63,16 @@ function stubContext() {
   } as unknown as AudioContext;
 }
 
-async function hostWith(instanceCount: number, options: { withSequencer?: boolean } = {}) {
+async function hostWith(
+  instanceCount: number,
+  options: { withSequencer?: boolean } = {}
+) {
   const withSequencer = options.withSequencer ?? true;
-  const sequencers = Array.from({ length: instanceCount }, () => stubSequencer());
+  const sequencers = Array.from({ length: instanceCount }, () =>
+    stubSequencer()
+  );
   const synths = Array.from({ length: instanceCount }, (_, i) =>
-    stubSynth(withSequencer ? sequencers[i] : undefined),
+    stubSynth(withSequencer ? sequencers[i] : undefined)
   );
   let made = 0;
   const host = new SynthHost({ createSynth: () => synths[made++] });
@@ -83,7 +92,7 @@ describe('SynthHost: timed notes', () => {
     expect(sequencers[0].sendEventAt).toHaveBeenCalledWith(
       { type: 'note', channel: 3, key: 60, vel: 100, duration: 1500 },
       250,
-      false,
+      false
     );
   });
 
@@ -98,7 +107,9 @@ describe('SynthHost: timed notes', () => {
   it('never sends a zero-length note', async () => {
     const { host, sequencers } = await hostWith(1);
     host.noteAt(0, 3, 60, 100, 0, 0);
-    expect(sequencers[0].sendEventAt.mock.calls[0][0]).toMatchObject({ duration: 1 });
+    expect(sequencers[0].sendEventAt.mock.calls[0][0]).toMatchObject({
+      duration: 1,
+    });
   });
 
   it('falls back to an immediate note-on when the instance has no sequencer', async () => {
@@ -123,10 +134,8 @@ describe('SynthHost: synth settings', () => {
     // A setting left out is not unset — it is fluidsynth's default silently
     // adopted, which is how this ran on sixteen channels for so long.
     const { synths } = await hostWith(1);
-    const settings = vi.mocked(synths[0].createAudioNode).mock.calls[0]?.[1] as Record<
-      string,
-      unknown
-    >;
+    const settings = vi.mocked(synths[0].createAudioNode).mock
+      .calls[0]?.[1] as Record<string, unknown>;
     for (const key of [
       'midiChannelCount',
       'polyphony',
@@ -143,7 +152,7 @@ describe('SynthHost: synth settings', () => {
   it('gives every instance the same settings', async () => {
     const { synths } = await hostWith(2);
     expect(vi.mocked(synths[1].createAudioNode).mock.calls[0]?.[1]).toEqual(
-      vi.mocked(synths[0].createAudioNode).mock.calls[0]?.[1],
+      vi.mocked(synths[0].createAudioNode).mock.calls[0]?.[1]
     );
   });
 });
@@ -178,7 +187,9 @@ describe('SynthHost', () => {
     const settings = vi.mocked(synth.createAudioNode).mock.calls[0]?.[1];
     expect(settings).toMatchObject({ midiChannelCount: 256 });
     // Enough channels for the drum-capable ones the allocator reaches for.
-    expect((settings as { midiChannelCount: number }).midiChannelCount).toBeGreaterThan(25);
+    expect(
+      (settings as { midiChannelCount: number }).midiChannelCount
+    ).toBeGreaterThan(25);
     expect(settings).toHaveProperty('polyphony');
   });
 
@@ -194,7 +205,9 @@ describe('SynthHost', () => {
       soundfont: new Uint8Array(4).buffer,
       instanceCount: 1,
     });
-    const added = vi.mocked(ctx.audioWorklet.addModule).mock.calls.map((c) => String(c[0]));
+    const added = vi
+      .mocked(ctx.audioWorklet.addModule)
+      .mock.calls.map(c => String(c[0]));
     expect(added).toHaveLength(3);
     expect(added[0]).toMatch(/^blob:/); // the quiet-module seed
     expect(added.slice(1)).toEqual(['fluid.js', 'worklet.js']);
@@ -289,7 +302,7 @@ describe('SynthHost', () => {
     expect(sequencer.sendEventAt).toHaveBeenCalledWith(
       { type: 'note', channel: 4, key: 60, vel: 100, duration: 500 },
       125,
-      false,
+      false
     );
     expect(synth.calls.midiNoteOn).toBeUndefined();
   });
@@ -332,7 +345,8 @@ describe('SynthHost', () => {
   it('applies interpolation to every instance, since the governor speaks for all of them', async () => {
     const { host, synths } = await hostWith(2);
     host.setInterpolation(4);
-    for (const s of synths) expect(s.calls.setInterpolation?.at(-1)).toEqual([4, -1]);
+    for (const s of synths)
+      expect(s.calls.setInterpolation?.at(-1)).toEqual([4, -1]);
   });
 
   it('silences every instance on allSoundOff', async () => {

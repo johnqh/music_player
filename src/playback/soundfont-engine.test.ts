@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PlaybackLoadState, PlaybackPlan } from '@sudobility/music_types';
+import { WebSynthBackend } from '../web/playback/web-backend.js';
+import type { WebBackendDeps } from '../web/playback/web-backend.js';
 import { SoundfontPlaybackEngine } from './soundfont-engine.js';
 import {
   TICKS_PER_SECOND,
@@ -7,9 +9,32 @@ import {
   testPlan,
   testTrack,
   twoTrackPlan,
-} from '../../shared/test-plan.js';
+} from '../shared/test-plan.js';
 
 /** Records everything the engine tells the synth host. */
+/**
+ * Builds the engine from the flat options these tests have always used.
+ *
+ * The web-shaped half — context, font, worklet URLs — now belongs to
+ * `WebSynthBackend` rather than to the scheduler, so it is split out here. The
+ * tests keep exercising the real backend, which is the point: the suspended
+ * context, the load progress and the font failure are its rules now, and they
+ * would otherwise have lost their only coverage in the move.
+ */
+function engineWith(
+  opts: WebBackendDeps & {
+    now?: () => number;
+    startPump?: (tick: () => void, intervalMs: number) => () => void;
+  }
+): SoundfontPlaybackEngine {
+  const { now, startPump, ...web } = opts;
+  return new SoundfontPlaybackEngine({
+    backend: new WebSynthBackend(web),
+    ...(now ? { now } : {}),
+    ...(startPump ? { startPump } : {}),
+  });
+}
+
 function stubHost() {
   const noteOn = vi.fn();
   return {
@@ -25,10 +50,10 @@ function stubHost() {
         midi: number,
         velocity: number,
         _delaySeconds: number,
-        _durationSeconds: number,
+        _durationSeconds: number
       ) => {
         noteOn(instance, channel, midi, velocity);
-      },
+      }
     ),
     noteOff: vi.fn(),
     controlChange: vi.fn(),
@@ -75,13 +100,19 @@ function stubContext() {
         onended: null,
       };
     }),
-    createGain: vi.fn(() => ({ gain: param(), connect: vi.fn(), disconnect: vi.fn() })),
+    createGain: vi.fn(() => ({
+      gain: param(),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    })),
   } as unknown as AudioContext & { clicks: ClickRecord[] };
 }
 
 /** The fake graph behind a running engine, for asserting on scheduled clicks. */
-function graphOf(engine: SoundfontPlaybackEngine): { clicks: ClickRecord[] } {
-  return (engine as unknown as { context: { clicks: ClickRecord[] } }).context;
+function graphOf(context: () => AudioContext | null): {
+  clicks: ClickRecord[];
+} {
+  return context() as unknown as { clicks: ClickRecord[] };
 }
 
 /** A pump we step by hand, so tests never wait on real time. */
@@ -116,20 +147,35 @@ function manualPump() {
 /** The cadence the lit keys run at, which is deliberately not the scheduler's. */
 const SOUNDING_MS = 16;
 
-function setup(plan?: PlaybackPlan, createContext: () => AudioContext = () => stubContext()) {
+function setup(
+  plan?: PlaybackPlan,
+  createContext: () => AudioContext = () => stubContext()
+) {
   const host = stubHost();
+  // Captured on the way past: the context belongs to the backend now, and a
+  // test that reached into the engine for it was reading an implementation
+  // detail that has since moved.
+  let context: AudioContext | null = null;
+  const capture = () => (context = createContext());
   const pump = manualPump();
   const clock = { t: 0 };
-  const engine = new SoundfontPlaybackEngine({
+  const engine = engineWith({
     host,
     moduleUrls: { fluidsynth: 'f.js', worklet: 'w.js' },
     fontUrl: 'font.sf3',
     loadFont: async () => new Uint8Array(4).buffer,
-    createContext,
+    createContext: capture,
     now: () => clock.t,
     startPump: pump.start,
   });
-  return { engine, host, pump, clock, plan: plan ?? twoTrackPlan() };
+  return {
+    engine,
+    host,
+    pump,
+    clock,
+    plan: plan ?? twoTrackPlan(),
+    context: () => context,
+  };
 }
 
 describe('SoundfontPlaybackEngine: loading a score', () => {
@@ -137,7 +183,7 @@ describe('SoundfontPlaybackEngine: loading a score', () => {
     const { engine, host, plan } = setup();
     await engine.initialize();
     await engine.load(plan);
-    const controls = host.controlChange.mock.calls.map((c) => c[2]);
+    const controls = host.controlChange.mock.calls.map(c => c[2]);
     expect(controls).toContain(7);
     expect(controls).toContain(10);
   });
@@ -146,8 +192,10 @@ describe('SoundfontPlaybackEngine: loading a score', () => {
     const { engine, host, plan } = setup();
     await engine.initialize();
     await engine.load(plan);
-    const programs = host.programSelect.mock.calls.map((c) => c[2]);
-    expect(programs).toEqual(plan.tracks.map((t: { midiProgram: number }) => t.midiProgram));
+    const programs = host.programSelect.mock.calls.map(c => c[2]);
+    expect(programs).toEqual(
+      plan.tracks.map((t: { midiProgram: number }) => t.midiProgram)
+    );
   });
 
   it('marks a percussion-clef track as percussion and never selects a program on it', async () => {
@@ -185,7 +233,7 @@ describe('SoundfontPlaybackEngine: loading a score', () => {
 
     // Both are drum channels, and they are different ones.
     expect(host.setChannelPercussion).toHaveBeenCalledTimes(2);
-    const drumChannels = host.setChannelPercussion.mock.calls.map((c) => c[1]);
+    const drumChannels = host.setChannelPercussion.mock.calls.map(c => c[1]);
     expect(new Set(drumChannels).size).toBe(2);
     expect(drumChannels).toContain(9);
 
@@ -198,7 +246,7 @@ describe('SoundfontPlaybackEngine: loading a score', () => {
       pump.step();
       clock.t += 0.1;
     }
-    const noteChannels = new Set(host.noteOn.mock.calls.map((c) => c[1]));
+    const noteChannels = new Set(host.noteOn.mock.calls.map(c => c[1]));
     expect(noteChannels.size).toBe(2);
     for (const channel of noteChannels) expect(drumChannels).toContain(channel);
   });
@@ -214,7 +262,7 @@ describe('SoundfontPlaybackEngine: loading a score', () => {
     const { engine, plan } = setup();
     const ticks: number[] = [];
     engine.setObserver({
-      onPositionTick: (tick) => ticks.push(tick),
+      onPositionTick: tick => ticks.push(tick),
       onActiveNotes: () => {},
       onStateChange: () => {},
     });
@@ -238,11 +286,16 @@ describe('SoundfontPlaybackEngine: mixing', () => {
 
     host.controlChange.mockClear();
     engine.setTrackMute(track.id, true);
-    expect(host.controlChange).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 7, 0);
+    expect(host.controlChange).toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.any(Number),
+      7,
+      0
+    );
 
     host.controlChange.mockClear();
     engine.setTrackMute(track.id, false);
-    const restored = host.controlChange.mock.calls.find((c) => c[2] === 7);
+    const restored = host.controlChange.mock.calls.find(c => c[2] === 7);
     expect(restored?.[3]).toBe(Math.round(track.volume * 127));
   });
 
@@ -254,9 +307,9 @@ describe('SoundfontPlaybackEngine: mixing', () => {
     host.controlChange.mockClear();
     engine.setTrackSolo(plan.tracks[0].id, true);
 
-    const cc7 = host.controlChange.mock.calls.filter((c) => c[2] === 7);
-    expect(cc7.some((c) => c[3] === 0)).toBe(true); // the non-soloed one
-    expect(cc7.some((c) => c[3] > 0)).toBe(true); // the soloed one
+    const cc7 = host.controlChange.mock.calls.filter(c => c[2] === 7);
+    expect(cc7.some(c => c[3] === 0)).toBe(true); // the non-soloed one
+    expect(cc7.some(c => c[3] > 0)).toBe(true); // the soloed one
   });
 });
 
@@ -311,13 +364,13 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
   /** An engine whose soundfont does not arrive until the returned `release` is called. */
   function withPendingFont() {
     let release!: () => void;
-    const font = new Promise<ArrayBuffer>((resolve) => {
+    const font = new Promise<ArrayBuffer>(resolve => {
       release = () => resolve(new Uint8Array(4).buffer);
     });
     const host = stubHost();
     const pump = manualPump();
     const context = suspendableContext();
-    const engine = new SoundfontPlaybackEngine({
+    const engine = engineWith({
       host,
       moduleUrls: { fluidsynth: 'f.js', worklet: 'w.js' },
       fontUrl: 'font.sf3',
@@ -345,8 +398,8 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
     engine.setObserver({
       onPositionTick: () => {},
       onActiveNotes: () => {},
-      onStateChange: (s) => states.push(s),
-      onLoadStateChange: (s) => loads.push(s.status),
+      onStateChange: s => states.push(s),
+      onLoadStateChange: s => loads.push(s.status),
     });
     await engine.load(twoTrackPlan());
 
@@ -375,7 +428,7 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
     engine.setObserver({
       onPositionTick: () => {},
       onActiveNotes: () => {},
-      onStateChange: (s) => states.push(s),
+      onStateChange: s => states.push(s),
     });
 
     const playing = engine.play();
@@ -400,7 +453,7 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
     // the measurable half; handing the font to fluidsynth reports nothing.
     const host = stubHost();
     const context = suspendableContext();
-    const engine = new SoundfontPlaybackEngine({
+    const engine = engineWith({
       host,
       moduleUrls: { fluidsynth: 'f.js', worklet: 'w.js' },
       fontUrl: 'font.sf3',
@@ -418,21 +471,23 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
       onPositionTick: () => {},
       onActiveNotes: () => {},
       onStateChange: () => {},
-      onLoadStateChange: (s) => seen.push(s),
+      onLoadStateChange: s => seen.push(s),
     });
 
     await engine.initialize();
     expect(seen.at(-1)).toEqual({ status: 'ready' });
     // Fetching never claims the whole bar: seconds of decoding follow it, so a
     // completed download reads as half done, then goes indeterminate.
-    const fractions = seen.filter((s) => s.status === 'loading').map((s) => s.fraction);
+    const fractions = seen
+      .filter(s => s.status === 'loading')
+      .map(s => s.fraction);
     expect(fractions).toEqual([0, 0.25, 0.5, null]);
   });
 
   it('reports a failure rather than going quiet', async () => {
     // A font that will not load is otherwise indistinguishable from silence.
     const context = suspendableContext();
-    const engine = new SoundfontPlaybackEngine({
+    const engine = engineWith({
       host: stubHost(),
       moduleUrls: { fluidsynth: 'f.js', worklet: 'w.js' },
       fontUrl: 'font.sf3',
@@ -448,11 +503,14 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
       onPositionTick: () => {},
       onActiveNotes: () => {},
       onStateChange: () => {},
-      onLoadStateChange: (s) => seen.push(s),
+      onLoadStateChange: s => seen.push(s),
     });
 
     await expect(engine.initialize()).rejects.toThrow('404');
-    expect(seen.at(-1)).toEqual({ status: 'failed', message: 'Soundfont fetch failed: 404' });
+    expect(seen.at(-1)).toEqual({
+      status: 'failed',
+      message: 'Soundfont fetch failed: 404',
+    });
   });
 
   it('keeps pumping after a tick throws, and says so', async () => {
@@ -470,7 +528,10 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
     });
     clock.t = 1;
     expect(() => pump.step()).not.toThrow();
-    expect(errors).toHaveBeenCalledWith('Playback pump failed', expect.any(Error));
+    expect(errors).toHaveBeenCalledWith(
+      'Playback pump failed',
+      expect.any(Error)
+    );
 
     // And the next tick still dispatches, rather than the pump being dead.
     host.noteOn.mockClear();
@@ -482,7 +543,11 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
 
   it('brings the synth up only once for concurrent callers', async () => {
     const { engine, host, plan } = setup();
-    await Promise.all([engine.initialize(), engine.initialize(), engine.load(plan)]);
+    await Promise.all([
+      engine.initialize(),
+      engine.initialize(),
+      engine.load(plan),
+    ]);
     expect(host.init).toHaveBeenCalledTimes(1);
   });
 
@@ -509,7 +574,7 @@ describe('SoundfontPlaybackEngine: transport', () => {
     engine.setObserver({
       onPositionTick: () => {},
       onActiveNotes: () => {},
-      onStateChange: (s) => states.push(s),
+      onStateChange: s => states.push(s),
     });
     await engine.initialize();
     await engine.load(plan);
@@ -534,7 +599,7 @@ describe('SoundfontPlaybackEngine: transport', () => {
     const { engine, clock, plan } = setup();
     const ticks: number[] = [];
     engine.setObserver({
-      onPositionTick: (tick) => ticks.push(tick),
+      onPositionTick: tick => ticks.push(tick),
       onActiveNotes: () => {},
       onStateChange: () => {},
     });
@@ -569,15 +634,18 @@ describe('SoundfontPlaybackEngine: transport', () => {
     // lookahead note lands a small, easily-asserted delay ahead.
     const fast = testPlan({
       ...twoTrackPlan(),
-      tempo: { ticksToSeconds: (t) => t / 4800, secondsToTicks: (sec) => sec * 4800 },
+      tempo: {
+        ticksToSeconds: t => t / 4800,
+        secondsToTicks: sec => sec * 4800,
+      },
     });
     const { engine, host, plan } = setup(fast);
     await engine.initialize();
     await engine.load(plan);
     await engine.play();
 
-    const delays = host.noteAt.mock.calls.map((c) => c[4] as number);
-    expect(delays.some((delay) => delay > 0.05)).toBe(true);
+    const delays = host.noteAt.mock.calls.map(c => c[4] as number);
+    expect(delays.some(delay => delay > 0.05)).toBe(true);
   });
 
   it('starts the piece at its beginning even when the first pump tick is late', async () => {
@@ -614,20 +682,23 @@ describe('SoundfontPlaybackEngine: transport', () => {
   });
 
   it('clicks only when the metronome is on', async () => {
-    const { engine, pump, clock, plan } = setup();
+    const { engine, pump, clock, plan, context } = setup();
     await engine.initialize();
     await engine.load(plan);
     await engine.play();
 
     clock.t = 1;
     pump.step();
-    const context = (engine as unknown as { context: AudioContext }).context;
-    expect(vi.mocked(context.createOscillator)).not.toHaveBeenCalled();
+    expect(
+      vi.mocked((context() as AudioContext).createOscillator)
+    ).not.toHaveBeenCalled();
 
     engine.setMetronome(true);
     clock.t = 2;
     pump.step();
-    expect(vi.mocked(context.createOscillator)).toHaveBeenCalled();
+    expect(
+      vi.mocked((context() as AudioContext).createOscillator)
+    ).toHaveBeenCalled();
   });
 
   it('silences everything on stop rather than leaving notes ringing', async () => {
@@ -648,7 +719,7 @@ describe('SoundfontPlaybackEngine: transport', () => {
     const { engine, plan } = setup();
     const ticks: number[] = [];
     engine.setObserver({
-      onPositionTick: (t) => ticks.push(t),
+      onPositionTick: t => ticks.push(t),
       onActiveNotes: () => {},
       onStateChange: () => {},
     });
@@ -667,7 +738,7 @@ describe('SoundfontPlaybackEngine: transport', () => {
     const { engine, pump, clock, plan } = setup();
     const ticks: number[] = [];
     engine.setObserver({
-      onPositionTick: (t) => ticks.push(t),
+      onPositionTick: t => ticks.push(t),
       onActiveNotes: () => {},
       onStateChange: () => {},
     });
@@ -739,7 +810,7 @@ describe('SoundfontPlaybackEngine: scheduling horizon', () => {
     await engine.load(plan);
     await engine.play();
     pump.step();
-    const delays = host.noteAt.mock.calls.map((c) => c[4] as number);
+    const delays = host.noteAt.mock.calls.map(c => c[4] as number);
     expect(Math.max(...delays)).toBeGreaterThan(1);
   });
 
@@ -763,7 +834,7 @@ describe('SoundfontPlaybackEngine: scheduling horizon', () => {
     engine.setObserver({
       onPositionTick: () => {},
       onActiveNotes: () => {},
-      onStateChange: (s) => {
+      onStateChange: s => {
         state = s;
       },
     });
@@ -800,7 +871,11 @@ describe('SoundfontPlaybackEngine: sounding notes', () => {
     const onActiveNotes = vi.fn();
     return {
       onActiveNotes,
-      observer: { onPositionTick: vi.fn(), onActiveNotes, onStateChange: vi.fn() },
+      observer: {
+        onPositionTick: vi.fn(),
+        onActiveNotes,
+        onStateChange: vi.fn(),
+      },
     };
   }
 
@@ -868,7 +943,8 @@ describe('SoundfontPlaybackEngine: sounding notes', () => {
     slow.clock.t += 0.05;
     slow.pump.step();
 
-    const litUnderLatency = (a.onActiveNotes.mock.calls.at(-1)?.[0] ?? []) as unknown[];
+    const litUnderLatency = (a.onActiveNotes.mock.calls.at(-1)?.[0] ??
+      []) as unknown[];
 
     const prompt = setup();
     const b = observed();
@@ -879,7 +955,8 @@ describe('SoundfontPlaybackEngine: sounding notes', () => {
     prompt.clock.t += 0.05;
     prompt.pump.step();
 
-    const litWithout = (b.onActiveNotes.mock.calls.at(-1)?.[0] ?? []) as unknown[];
+    const litWithout = (b.onActiveNotes.mock.calls.at(-1)?.[0] ??
+      []) as unknown[];
 
     expect(litWithout.length).toBeGreaterThan(0);
     expect(litUnderLatency.length).toBe(0);
@@ -937,8 +1014,8 @@ describe('SoundfontPlaybackEngine: applyMix', () => {
       ...plan.tracks.slice(1),
     ]);
 
-    const cc7 = host.controlChange.mock.calls.find((c) => c[2] === 7);
-    const cc10 = host.controlChange.mock.calls.find((c) => c[2] === 10);
+    const cc7 = host.controlChange.mock.calls.find(c => c[2] === 7);
+    const cc10 = host.controlChange.mock.calls.find(c => c[2] === 10);
     expect(cc7?.[3]).toBe(Math.round(0.25 * 127));
     expect(cc10?.[3]).toBe(0); // hard left
   });
@@ -949,11 +1026,14 @@ describe('SoundfontPlaybackEngine: applyMix', () => {
     await engine.load(plan);
 
     host.controlChange.mockClear();
-    engine.applyMix([{ ...plan.tracks[0], solo: true }, ...plan.tracks.slice(1)]);
+    engine.applyMix([
+      { ...plan.tracks[0], solo: true },
+      ...plan.tracks.slice(1),
+    ]);
 
-    const cc7 = host.controlChange.mock.calls.filter((c) => c[2] === 7);
-    expect(cc7.some((c) => c[3] === 0)).toBe(true); // the non-soloed track
-    expect(cc7.some((c) => (c[3] as number) > 0)).toBe(true); // the soloed one
+    const cc7 = host.controlChange.mock.calls.filter(c => c[2] === 7);
+    expect(cc7.some(c => c[3] === 0)).toBe(true); // the non-soloed track
+    expect(cc7.some(c => (c[3] as number) > 0)).toBe(true); // the soloed one
   });
 
   it('does not reschedule anything', async () => {
@@ -976,25 +1056,26 @@ describe('SoundfontPlaybackEngine: the metronome', () => {
     // the transport does afterwards. Nothing in `allSoundOff` reaches them —
     // that speaks to the synth — so pausing left the room ticking for four
     // seconds after the music stopped.
-    const { engine, pump, clock, plan } = setup();
+    const { engine, pump, clock, plan, context } = setup();
     await engine.initialize();
     await engine.load(plan);
     engine.setMetronome(true);
     await engine.play();
     pump.step();
 
-    const { clicks } = graphOf(engine);
-    const pending = clicks.filter((c) => c.startAt > 0.5);
+    const { clicks } = graphOf(context);
+    const pending = clicks.filter(c => c.startAt > 0.5);
     expect(pending.length).toBeGreaterThan(0);
 
     clock.t = 0.5;
     engine.pause();
     // Stopped at or before the moment it would have begun, so it never sounds.
-    for (const click of pending) expect(click.stopAt).toBeLessThanOrEqual(click.startAt);
+    for (const click of pending)
+      expect(click.stopAt).toBeLessThanOrEqual(click.startAt);
   });
 
   it('stops clicking within a beat of being switched off, not a horizon later', async () => {
-    const { engine, pump, clock, plan } = setup();
+    const { engine, pump, clock, plan, context } = setup();
     await engine.initialize();
     await engine.load(plan);
     engine.setMetronome(true);
@@ -1003,13 +1084,18 @@ describe('SoundfontPlaybackEngine: the metronome', () => {
 
     clock.t = 0.5;
     engine.setMetronome(false);
-    const pending = graphOf(engine).clicks.filter((c) => c.startAt > 0.5);
-    for (const click of pending) expect(click.stopAt).toBeLessThanOrEqual(click.startAt);
+    const pending = graphOf(context).clicks.filter(c => c.startAt > 0.5);
+    for (const click of pending)
+      expect(click.stopAt).toBeLessThanOrEqual(click.startAt);
   });
 });
 
 describe('SoundfontPlaybackEngine: looping', () => {
-  const loop = (startTick: number, endTick: number) => ({ startTick, endTick, trackIds: [] });
+  const loop = (startTick: number, endTick: number) => ({
+    startTick,
+    endTick,
+    trackIds: [],
+  });
 
   it('schedules nothing past the loop end', async () => {
     // The horizon is four seconds and the wrap only happens on the pump tick
@@ -1022,11 +1108,13 @@ describe('SoundfontPlaybackEngine: looping', () => {
     await engine.play();
     pump.step();
 
-    expect(host.noteAt.mock.calls.map((call) => call[2])).toEqual([60, 61, 62, 63]);
+    expect(host.noteAt.mock.calls.map(call => call[2])).toEqual([
+      60, 61, 62, 63,
+    ]);
   });
 
   it('does not click past the loop end either', async () => {
-    const { engine, pump, plan } = setup();
+    const { engine, pump, plan, context } = setup();
     await engine.initialize();
     await engine.load(plan);
     engine.setMetronome(true);
@@ -1036,7 +1124,9 @@ describe('SoundfontPlaybackEngine: looping', () => {
 
     // Ticks 0, 480, 960, 1440 — the click at 1920 belongs to the next pass,
     // where it is the downbeat of the loop's first beat.
-    expect(graphOf(engine).clicks.map((c) => c.startAt)).toEqual([0, 0.5, 1, 1.5]);
+    expect(graphOf(context).clicks.map(c => c.startAt)).toEqual([
+      0, 0.5, 1, 1.5,
+    ]);
   });
 
   it('keeps looping past the last note rather than stopping the transport', async () => {
@@ -1045,7 +1135,7 @@ describe('SoundfontPlaybackEngine: looping', () => {
     engine.setObserver({
       onPositionTick: () => {},
       onActiveNotes: () => {},
-      onStateChange: (state) => states.push(state),
+      onStateChange: state => states.push(state),
     });
     await engine.initialize();
     await engine.load(plan);
@@ -1076,7 +1166,7 @@ describe('SoundfontPlaybackEngine: playback speed', () => {
 
     // Tick 960 falls one score-second in; half of that has played, so half a
     // score-second remains — a quarter of a second at double speed.
-    const call = host.noteAt.mock.calls.find((c) => c[2] === 62);
+    const call = host.noteAt.mock.calls.find(c => c[2] === 62);
     expect(call?.[4]).toBeCloseTo(0.25, 6);
   });
 });
@@ -1101,7 +1191,7 @@ describe('SoundfontPlaybackEngine: note velocity', () => {
     await engine.play();
     pump.step();
 
-    expect(host.noteAt.mock.calls.map((call) => call[3])).toEqual([1, 127, 81]);
+    expect(host.noteAt.mock.calls.map(call => call[3])).toEqual([1, 127, 81]);
   });
 });
 
@@ -1122,16 +1212,16 @@ describe('SoundfontPlaybackEngine: playing again after the end', () => {
     const plan = testPlan({
       tracks: [testTrack({ id: 't1' })],
       notes: Array.from({ length: 10 }, (_, i) =>
-        testNote({ trackId: 't1', tick: i * TICKS_PER_SECOND, durTicks: 480 }),
+        testNote({ trackId: 't1', tick: i * TICKS_PER_SECOND, durTicks: 480 })
       ),
     });
     const { engine, pump, clock } = setup(plan);
     const states: string[] = [];
     const ticks: number[] = [];
     engine.setObserver({
-      onPositionTick: (tick) => ticks.push(tick),
+      onPositionTick: tick => ticks.push(tick),
       onActiveNotes: () => {},
-      onStateChange: (state) => states.push(state),
+      onStateChange: state => states.push(state),
       onLoadStateChange: () => {},
     });
     await engine.initialize();
@@ -1155,6 +1245,6 @@ describe('SoundfontPlaybackEngine: playing again after the end', () => {
     }
 
     expect(states).toContain('playing');
-    expect(ticks.filter((tick) => tick > 0).length).toBeGreaterThan(0);
+    expect(ticks.filter(tick => tick > 0).length).toBeGreaterThan(0);
   });
 });

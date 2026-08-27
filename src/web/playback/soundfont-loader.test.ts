@@ -50,7 +50,10 @@ describe('loadSoundfont', () => {
     // Resolving an empty buffer would load a synth with no instruments and
     // present as silent playback with no error anywhere.
     const { cache } = stubCache();
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('nope', { status: 404 }))
+    );
 
     await expect(loadSoundfont('font', { cache })).rejects.toThrow(/404/);
   });
@@ -69,11 +72,14 @@ describe('loadSoundfont', () => {
     const { cache } = stubCache();
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(bytes(16), { headers: { 'content-length': '16' } })),
+      vi.fn(
+        async () =>
+          new Response(bytes(16), { headers: { 'content-length': '16' } })
+      )
     );
     const seen: Array<{ loaded: number; total: number }> = [];
 
-    await loadSoundfont('font', { cache, onProgress: (p) => seen.push(p) });
+    await loadSoundfont('font', { cache, onProgress: p => seen.push(p) });
 
     expect(seen.length).toBeGreaterThan(0);
     expect(seen[seen.length - 1]).toEqual({ loaded: 16, total: 16 });

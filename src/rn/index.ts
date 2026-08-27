@@ -14,6 +14,24 @@ import { MusicPlayer } from '../player.js';
 export * from '../types.js';
 export * from '../singleton.js';
 export { MusicPlayer, RNSamplePlaybackEngine, createRNSoundfontRenderer };
+/**
+ * The native soundfont path: a `SynthBackend` over a platform synth, driven by
+ * the same scheduler the browser uses. Beside the sample engine rather than
+ * replacing it — that one needs no native module at all, which is what makes
+ * it the right default on a phone.
+ */
+export { NativeSynthBackend } from './playback/native-backend.js';
+export type {
+  NativeSynth,
+  NativeSynthApi,
+  NativeSynthSettings,
+} from './playback/native-synth-api.js';
+export { SoundfontPlaybackEngine } from '../playback/soundfont-engine.js';
+export type {
+  SynthBackend,
+  ScheduledClick,
+  PrepareResult,
+} from '../playback/synth-backend.js';
 export { renderEvents } from '../shared/render-events.js';
 export { playbackPlan, playbackTracks, resolveVoice } from '../shared/plan.js';
 /**
