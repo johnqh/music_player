@@ -258,7 +258,19 @@ describe('SoundfontPlaybackEngine: loading a score', () => {
     expect(host.setTrackCount).toHaveBeenCalledWith(plan.tracks.length);
   });
 
-  it('resets transport position when replacing the loaded score', async () => {
+  /*
+    `load` runs on every score change, because an edit produces a new score
+    object and the host reloads on identity. It used to seek to 0 — so writing
+    a note put the caret back at the beginning of the piece: the editing action
+    advanced the caret synchronously, this reload landed afterwards, and the
+    caret *is* the reported position. Typing a melody wrote every note into
+    bar 1, in both the web and the React Native app.
+
+    Nothing wanted the reset. The one caller that needs bar 1 — a score
+    arriving from outside, a snapshot or a generation result — calls `stop()`
+    first, and `stop` zeroes the clock, which is what the third test pins.
+  */
+  it('keeps the playhead where it was when the score is replaced', async () => {
     const { engine, plan } = setup();
     const ticks: number[] = [];
     engine.setObserver({
@@ -269,6 +281,46 @@ describe('SoundfontPlaybackEngine: loading a score', () => {
     await engine.initialize();
     await engine.load(plan);
     engine.seek(480 * 4);
+
+    ticks.length = 0;
+    await engine.load(testPlan({ ...plan, tracks: plan.tracks }));
+
+    expect(ticks.at(-1)).toBe(480 * 4);
+  });
+
+  it('clamps the playhead into a score that got shorter', async () => {
+    // Deleting the last bars leaves the old position past the end of the
+    // piece, which is a tick nothing can be seeked to.
+    const { engine, plan } = setup();
+    const ticks: number[] = [];
+    engine.setObserver({
+      onPositionTick: tick => ticks.push(tick),
+      onActiveNotes: () => {},
+      onStateChange: () => {},
+    });
+    await engine.initialize();
+    await engine.load(plan);
+    engine.seek(480 * 8);
+
+    ticks.length = 0;
+    // Two beats' worth: the piece now ends at tick 960.
+    await engine.load(testPlan({ ...plan, notes: plan.notes.slice(0, 2) }));
+
+    expect(ticks.at(-1)).toBe(960);
+  });
+
+  it('still starts at the beginning for a score that arrives after a stop', async () => {
+    const { engine, plan } = setup();
+    const ticks: number[] = [];
+    engine.setObserver({
+      onPositionTick: tick => ticks.push(tick),
+      onActiveNotes: () => {},
+      onStateChange: () => {},
+    });
+    await engine.initialize();
+    await engine.load(plan);
+    engine.seek(480 * 4);
+    engine.stop();
 
     ticks.length = 0;
     await engine.load(testPlan({ ...plan, tracks: plan.tracks }));
@@ -869,10 +921,12 @@ describe('SoundfontPlaybackEngine: scheduling horizon', () => {
 describe('SoundfontPlaybackEngine: sounding notes', () => {
   function observed() {
     const onActiveNotes = vi.fn();
+    const onPositionTick = vi.fn();
     return {
       onActiveNotes,
+      onPositionTick,
       observer: {
-        onPositionTick: vi.fn(),
+        onPositionTick,
         onActiveNotes,
         onStateChange: vi.fn(),
       },
@@ -960,6 +1014,65 @@ describe('SoundfontPlaybackEngine: sounding notes', () => {
 
     expect(litWithout.length).toBeGreaterThan(0);
     expect(litUnderLatency.length).toBe(0);
+  });
+
+  it('holds the caret back by the same latency as the lit keys', async () => {
+    /*
+      The caret used to run on scheduling time while the lit keys ran on
+      listening time, so it sat ahead of the sound by the output latency — and
+      ahead of the very notes it was pointing at. Two visuals off one clock
+      disagreeing with each other is the part that made it obvious.
+
+      Exaggerated here to be unmistakable; a real machine reports ~20ms, which
+      nearly cancels the render delay.
+    */
+    const laggy = stubContext();
+    (laggy as unknown as { outputLatency: number }).outputLatency = 5;
+    const slow = setup(undefined, () => laggy as unknown as AudioContext);
+    const a = observed();
+    slow.engine.setObserver(a.observer);
+    await slow.engine.initialize();
+    await slow.engine.load(slow.plan);
+    await slow.engine.play();
+    slow.clock.t += 0.05;
+    slow.pump.step();
+    const laggyTick = a.onPositionTick.mock.calls.at(-1)?.[0] as number;
+
+    const prompt = setup();
+    const b = observed();
+    prompt.engine.setObserver(b.observer);
+    await prompt.engine.initialize();
+    await prompt.engine.load(prompt.plan);
+    await prompt.engine.play();
+    prompt.clock.t += 0.05;
+    prompt.pump.step();
+    const promptTick = b.onPositionTick.mock.calls.at(-1)?.[0] as number;
+
+    // The laggier the output, the further behind the caret has to sit.
+    expect(laggyTick).toBeLessThan(promptTick);
+  });
+
+  it('still seeks to exactly the tick it was asked for', async () => {
+    /*
+      The correction is on the *playing* path only. A seek is the user saying
+      where the caret goes, so answering with anything but that tick would make
+      clicking the sheet land somewhere else — and by a different amount on
+      every machine.
+    */
+    const laggy = stubContext();
+    (laggy as unknown as { outputLatency: number }).outputLatency = 5;
+    const { engine, plan } = setup(
+      undefined,
+      () => laggy as unknown as AudioContext
+    );
+    const { onPositionTick, observer } = observed();
+    engine.setObserver(observer);
+    await engine.initialize();
+    await engine.load(plan);
+
+    engine.seek(480 * 4);
+
+    expect(onPositionTick.mock.calls.at(-1)?.[0]).toBe(480 * 4);
   });
 
   it('stops reporting a note once it has ended', async () => {

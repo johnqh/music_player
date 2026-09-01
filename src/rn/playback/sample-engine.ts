@@ -68,7 +68,7 @@ import type {
 import { applySustainLoop } from './sustain-loop.js';
 import {
   SOUNDING_INTERVAL_MS,
-  visualSoundingOffsetSeconds,
+  visualOffsetSeconds,
 } from '../../shared/visual-sync.js';
 
 /** How often the pump looks for notes to schedule. */
@@ -220,6 +220,23 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
   }
 
   async load(plan: PlaybackPlan): Promise<void> {
+    /*
+      Where the playhead already is, not the start.
+
+      `load` runs on **every** score change, because an edit produces a new
+      score object and the host reloads on identity — so seeking to 0 here put
+      the caret back at the beginning of the piece after every note written.
+      The caret *is* the reported position (see music_types' `MusicPosition`),
+      and this reload lands asynchronously, after the caret advance the editing
+      action made, so it arrived second and won. Typing a melody wrote every
+      note into bar 1.
+
+      Captured before `seek` runs, which is what overwrites it.
+
+      Clamped to what the new score actually holds — deleting the last bars
+      leaves the old position past the end of the piece.
+    */
+    const resumeTick = this.positionTick;
     this.stopAllVoices();
     // The strips belong to the tracks of the plan being replaced; keeping them
     // would leave a departed track's fader in the graph and a returning one
@@ -237,7 +254,11 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     for (const track of plan.tracks) {
       this.mix.set(track.id, { volume: track.volume, pan: track.pan });
     }
-    this.seek(0);
+    const lastTick = plan.notes.reduce(
+      (end, n) => Math.max(end, n.tick + n.durTicks),
+      0
+    );
+    this.seek(Math.min(Math.max(0, resumeTick), lastTick));
   }
 
   // ---- sample packs ------------------------------------------------------
@@ -388,7 +409,22 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
 
   private reportPosition(): void {
     this.positionTick = this.currentTick();
-    this.observer?.onPositionTick(this.positionTick);
+    /*
+      Reported at the position the listener is *hearing*, not the one the graph
+      is scheduling — see `visualOffsetSeconds`. `positionTick` itself stays
+      raw, because the queue cursor and the seek origin are scheduling-side and
+      shifting them would move the music rather than the caret.
+    */
+    this.observer?.onPositionTick(this.visualTick(this.positionTick));
+  }
+
+  /** A scheduling tick as the tick to show. Identity when there is no tempo. */
+  private visualTick(tick: number): number {
+    if (!this.tempo) return tick;
+    const seconds =
+      this.tempo.ticksToSeconds(tick) +
+      visualOffsetSeconds(this.ctx?.outputLatency);
+    return Math.max(0, this.tempo.secondsToTicks(seconds));
   }
 
   /**
@@ -403,7 +439,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     if (!this.tempo) return;
     const at =
       this.tempo.ticksToSeconds(this.currentTick()) +
-      visualSoundingOffsetSeconds(this.ctx?.outputLatency);
+      visualOffsetSeconds(this.ctx?.outputLatency);
     const notes = this.sounding.advanceTo(at);
     if (notes) this.setActiveNotes(notes);
   }

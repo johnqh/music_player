@@ -37,7 +37,7 @@ import { NoteQueue } from '../shared/note-queue.js';
 import { SoundingSet } from '../shared/sounding-set.js';
 import {
   SOUNDING_INTERVAL_MS,
-  visualSoundingOffsetSeconds,
+  visualOffsetSeconds,
 } from '../shared/visual-sync.js';
 import { Governor } from './governor.js';
 import type { ScheduledClick, SynthBackend } from './synth-backend.js';
@@ -276,6 +276,25 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   }
 
   async load(plan: PlaybackPlan): Promise<void> {
+    /*
+      Where the playhead already is, not the start.
+
+      `load` runs on **every** score change, because an edit produces a new
+      score object and the host reloads on identity — so seeking to 0 here put
+      the caret back at the beginning of the piece after every note written.
+      The caret *is* the reported position (see music_types' `MusicPosition`),
+      and this reload lands asynchronously, after the caret advance the editing
+      action made, so it arrived second and won. Typing a melody wrote every
+      note into bar 1.
+
+      Captured before `this.tempo` is replaced: the clock's seconds belong to
+      the tempo that was in force, so reading the tick afterwards would move
+      the position by whatever the tempo change was.
+
+      Clamped to what the new score actually holds — deleting the last bars
+      leaves the old position past the end of the piece.
+    */
+    const resumeTick = this.tickForSeconds(this.clock.positionSeconds);
     this.plan = plan;
     this.tempo = plan.tempo;
     const notes = plan.notes;
@@ -287,7 +306,11 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     this.sounding.load(notes, tick => this.secondsForTick(tick));
     this.clicks = plan.clicks;
     this.clickCursor = 0;
-    this.seek(0);
+    const lastTick = notes.reduce(
+      (end, n) => Math.max(end, n.tick + n.durTicks),
+      0
+    );
+    this.seek(Math.min(Math.max(0, resumeTick), lastTick));
 
     const { assignments, instanceCount } = allocateChannels(
       plan.tracks.map(t => ({ id: t.id, isPercussion: t.isPercussion }))
@@ -711,7 +734,19 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     }
 
     this.pumpMetronome(position, untilTick);
-    this.report(position);
+    /*
+      Reported at the position the listener is *hearing*, not the one the graph
+      is scheduling.
+
+      `clock.positionSeconds` follows the AudioContext's `currentTime`, which
+      runs ahead of the room by the output latency — so a caret driven straight
+      off it sits ahead of the sound, and ahead of the notes the sounding set
+      is lighting up, which already carries this correction. Seeks deliberately
+      do not: `seek` reports the tick it was asked for, exactly.
+    */
+    this.report(
+      position + visualOffsetSeconds(this.deps.backend.outputLatency())
+    );
     // A loop never ends the transport: its range may well run past the last
     // note, and stopping there would end playback mid-loop.
     if (
@@ -859,7 +894,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   private reportSounding(): void {
     const at =
       this.clock.positionSeconds +
-      visualSoundingOffsetSeconds(this.deps.backend.outputLatency());
+      visualOffsetSeconds(this.deps.backend.outputLatency());
     const sounding = this.sounding.advanceTo(at);
     if (sounding) this.observer?.onActiveNotes(sounding);
   }
