@@ -28,6 +28,7 @@ import { beatBoundaries } from '@sudobility/music_types';
 import { gmInstrument } from '@sudobility/music_types';
 import { gmKitAt } from '@sudobility/music_types';
 import { isPercussionTrack } from '@sudobility/music_types';
+import { humanizeNotes } from './humanize.js';
 
 /**
  * The GM voice a program addresses.
@@ -135,7 +136,11 @@ function expandAlongTimeline<T extends { tick: number }>(
   return expanded.sort((a, b) => a.tick - b.tick);
 }
 
-export function playbackPlan(score: Score): PlaybackPlan {
+export function playbackPlan(
+  score: Score,
+  /** Off only for tests that assert exact ticks; playback is humanized (`humanize.ts`). */
+  options: { humanize?: boolean } = {}
+): PlaybackPlan {
   const timeline = performanceTimeline(score);
 
   /*
@@ -144,8 +149,9 @@ export function playbackPlan(score: Score): PlaybackPlan {
     — see `sourceTickFor` — which is what keeps the score the canonical,
     written thing rather than teaching the caret about repeats.
   */
+  const flat = flattenScoreNotes(score);
   const notes = expandAlongTimeline(
-    flattenScoreNotes(score),
+    options.humanize === false ? flat : humanizeNotes(flat, score),
     timeline,
     (note, tick, pass) => ({
       ...note,

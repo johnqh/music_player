@@ -9,6 +9,7 @@
 import { TempoMap } from '@sudobility/music_types';
 import { fermataTempoMap } from '@sudobility/music_types';
 import { flattenScoreNotes } from '@sudobility/music_types';
+import { humanizeNotes } from './humanize.js';
 import { resolveVoice } from './plan.js';
 import type { Score } from '@sudobility/music_types';
 
@@ -46,7 +47,11 @@ const TAIL_SEC = 1;
  * same traversal `playbackPlan` uses. Walking the score separately is what let
  * the two drift over ties.
  */
-export function renderEvents(score: Score): RenderPlan {
+export function renderEvents(
+  score: Score,
+  /** Off only for tests that assert exact ticks; the exported file is humanized like live playback. */
+  options: { humanize?: boolean } = {}
+): RenderPlan {
   // The same derived map live playback uses, so an exported file holds its
   // pauses for exactly as long as the transport just did.
   const tempoMap = new TempoMap(fermataTempoMap(score), score.ppq);
@@ -80,7 +85,10 @@ export function renderEvents(score: Score): RenderPlan {
     score.tracks.filter(t => (anySolo ? !t.solo : t.muted)).map(t => t.id)
   );
   const events: RenderEvent[] = [];
-  for (const note of flattenScoreNotes(score)) {
+  const flat = flattenScoreNotes(score);
+  for (const note of options.humanize === false
+    ? flat
+    : humanizeNotes(flat, score)) {
     if (silenced.has(note.trackId)) continue;
     const startSec = tempoMap.ticksToSeconds(note.tick);
     const endSec = tempoMap.ticksToSeconds(note.tick + note.durTicks);

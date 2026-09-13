@@ -27,7 +27,7 @@ function repeated() {
 describe('playbackPlan with repeats', () => {
   it('leaves an unrepeated score exactly as it was', () => {
     // The property that makes this safe to land on every existing project.
-    const plain = playbackPlan(twinkleScore());
+    const plain = playbackPlan(twinkleScore(), { humanize: false });
     const notes = plain.notes;
 
     expect(plain.timeline.segments).toHaveLength(1);
@@ -38,8 +38,8 @@ describe('playbackPlan with repeats', () => {
   });
 
   it('sounds the repeated bars a second time', () => {
-    const plain = playbackPlan(twinkleScore());
-    const looped = playbackPlan(repeated());
+    const plain = playbackPlan(twinkleScore(), { humanize: false });
+    const looped = playbackPlan(repeated(), { humanize: false });
 
     expect(looped.notes.length).toBeGreaterThan(plain.notes.length);
     expect(looped.durationTicks).toBeGreaterThan(plain.durationTicks);
@@ -48,7 +48,7 @@ describe('playbackPlan with repeats', () => {
   it('gives the second pass its own note ids', () => {
     // The caret lights a note by id; one written note sounding twice must not
     // light both places at once.
-    const looped = playbackPlan(repeated());
+    const looped = playbackPlan(repeated(), { humanize: false });
     const ids = looped.notes.map(n => n.noteId);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.some(id => id.includes('#2'))).toBe(true);
@@ -56,7 +56,7 @@ describe('playbackPlan with repeats', () => {
 
   it('maps a second-pass position back to the written bar', () => {
     const score = repeated();
-    const plan = playbackPlan(score);
+    const plan = playbackPlan(score, { humanize: false });
     const barTicks = score.tracks[0].measures[0].durationTicks;
 
     // Two bars in is the start of the second pass, which is written bar 1.
@@ -72,8 +72,8 @@ describe('playbackPlan with repeats', () => {
   });
 
   it('repeats the metronome too, so the click follows the music', () => {
-    const plain = playbackPlan(twinkleScore());
-    const looped = playbackPlan(repeated());
+    const plain = playbackPlan(twinkleScore(), { humanize: false });
+    const looped = playbackPlan(repeated(), { humanize: false });
     expect(looped.clicks.length).toBeGreaterThan(plain.clicks.length);
   });
 });

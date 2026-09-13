@@ -7,7 +7,7 @@ import { TempoMap } from '@sudobility/music_types';
 
 describe('playbackPlan', () => {
   it('emits every sounding note with its id and track', () => {
-    const plan = playbackPlan(twinkleScore());
+    const plan = playbackPlan(twinkleScore(), { humanize: false });
     expect(plan.notes.length).toBeGreaterThan(0);
     for (const note of plan.notes) {
       expect(note.noteId).toBeTruthy();
@@ -18,18 +18,22 @@ describe('playbackPlan', () => {
   });
 
   it('sorts notes by tick', () => {
-    const ticks = playbackPlan(twinkleScore()).notes.map(n => n.tick);
+    const ticks = playbackPlan(twinkleScore(), { humanize: false }).notes.map(
+      n => n.tick
+    );
     expect([...ticks].sort((a, b) => a - b)).toEqual(ticks);
   });
 
   it('carries every track, including silent ones, for mix headroom', () => {
     const score = twoTrackScore();
-    expect(playbackPlan(score).tracks).toHaveLength(score.tracks.length);
+    expect(playbackPlan(score, { humanize: false }).tracks).toHaveLength(
+      score.tracks.length
+    );
   });
 
   it('converts ticks to seconds through the score tempo', () => {
     const score = twinkleScore();
-    const plan = playbackPlan(score);
+    const plan = playbackPlan(score, { humanize: false });
     expect(plan.tempo.ticksToSeconds(0)).toBe(0);
     expect(plan.tempo.ticksToSeconds(score.ppq)).toBeGreaterThan(0);
     // Round trip, which is what seek and position reporting rely on.
@@ -38,14 +42,14 @@ describe('playbackPlan', () => {
   });
 
   it('marks beat one of each measure as an accent', () => {
-    const plan = playbackPlan(twinkleScore());
+    const plan = playbackPlan(twinkleScore(), { humanize: false });
     expect(plan.clicks.length).toBeGreaterThan(0);
     expect(plan.clicks[0]).toEqual({ tick: 0, accent: true });
     expect(plan.clicks.filter(c => c.accent).length).toBeGreaterThan(1);
   });
 
   it('reports the last tick any note ends on', () => {
-    const plan = playbackPlan(twinkleScore());
+    const plan = playbackPlan(twinkleScore(), { humanize: false });
     const last = Math.max(...plan.notes.map(n => n.tick + n.durTicks));
     expect(plan.durationTicks).toBe(last);
   });
@@ -148,7 +152,9 @@ describe('playbackPlan: behaviours moved from music_io schedule.ts', () => {
   }
 
   it('joins a note tied across a barline into one, dropping the continuation', () => {
-    const notes = playbackPlan(tiedAcrossBarlineScore()).notes;
+    const notes = playbackPlan(tiedAcrossBarlineScore(), {
+      humanize: false,
+    }).notes;
     const ids = notes.map(n => n.noteId);
     expect(ids).not.toContain('note-tie-stop');
     expect(ids).toContain('note-tie-start');
@@ -161,13 +167,15 @@ describe('playbackPlan: behaviours moved from music_io schedule.ts', () => {
 
   it('keeps trackId provenance across every track', () => {
     const score = twoTrackScore();
-    const ids = new Set(playbackPlan(score).notes.map(n => n.trackId));
+    const ids = new Set(
+      playbackPlan(score, { humanize: false }).notes.map(n => n.trackId)
+    );
     expect(ids).toEqual(new Set(score.tracks.map(t => t.id)));
   });
 
   it('emits one click per beat across the measure grid', () => {
     // twinkleScore is 8 bars of 4/4, so 32 beats.
-    const clicks = playbackPlan(twinkleScore()).clicks;
+    const clicks = playbackPlan(twinkleScore(), { humanize: false }).clicks;
     expect(clicks).toHaveLength(32);
     expect(clicks[1]).toEqual({ tick: PPQ, accent: false });
     expect(clicks[4]).toEqual({ tick: PPQ * 4, accent: true });
@@ -175,7 +183,7 @@ describe('playbackPlan: behaviours moved from music_io schedule.ts', () => {
 
   it('is empty for a score with no tracks', () => {
     const score = { ...twinkleScore(), tracks: [] };
-    const plan = playbackPlan(score);
+    const plan = playbackPlan(score, { humanize: false });
     expect(plan.notes).toEqual([]);
     expect(plan.clicks).toEqual([]);
     expect(plan.tracks).toEqual([]);
@@ -212,8 +220,8 @@ describe('fermatas in the plan', () => {
     // The engine schedules from `plan.tempo`, so this is what actually makes a
     // fermata audible.
     const score = twinkleScore();
-    const plan = playbackPlan(held(score));
-    const plain = playbackPlan(score);
+    const plan = playbackPlan(held(score), { humanize: false });
+    const plain = playbackPlan(score, { humanize: false });
     const tick = plan.notes[0].tick;
 
     expect(plan.tempo.ticksToSeconds(tick + 480)).toBeGreaterThan(
@@ -223,14 +231,14 @@ describe('fermatas in the plan', () => {
 
   it('leaves every note on its written tick', () => {
     const score = twinkleScore();
-    expect(playbackPlan(held(score)).notes.map(n => n.tick)).toEqual(
-      playbackPlan(score).notes.map(n => n.tick)
-    );
+    expect(
+      playbackPlan(held(score), { humanize: false }).notes.map(n => n.tick)
+    ).toEqual(playbackPlan(score, { humanize: false }).notes.map(n => n.tick));
   });
 
   it('changes nothing for a score with no fermata', () => {
     const score = twinkleScore();
-    const plan = playbackPlan(score);
+    const plan = playbackPlan(score, { humanize: false });
     expect(plan.tempo.ticksToSeconds(1920)).toBeCloseTo(
       new TempoMap(score.tempoMap, score.ppq).ticksToSeconds(1920),
       6

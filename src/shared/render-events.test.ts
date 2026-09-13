@@ -54,7 +54,7 @@ describe('renderEvents: matching what playback does', () => {
   it('carries every track, so the renderer can size headroom as playback does', () => {
     // One score, built once: `twoTrack()` mints fresh ids on every call.
     const score = twoTrack();
-    const { tracks } = renderEvents(score);
+    const { tracks } = renderEvents(score, { humanize: false });
     expect(tracks).toHaveLength(2);
     expect(tracks.map((t: { id: string }) => t.id)).toEqual(
       score.tracks.map(t => t.id)
@@ -70,7 +70,7 @@ describe('renderEvents: matching what playback does', () => {
       ...score,
       tracks: [{ ...score.tracks[0], muted: true }, score.tracks[1]],
     };
-    const { tracks, events } = renderEvents(muted);
+    const { tracks, events } = renderEvents(muted, { humanize: false });
     expect(tracks).toHaveLength(2);
     expect(
       events.every((e: { trackId: string }) => e.trackId === muted.tracks[1].id)
@@ -86,7 +86,7 @@ describe('renderEvents: matching what playback does', () => {
         { ...score.tracks[1], volume: 0.9, pan: 0.5 },
       ],
     };
-    const { tracks } = renderEvents(mixed);
+    const { tracks } = renderEvents(mixed, { humanize: false });
     expect(tracks[0]).toMatchObject({ volume: 0.42, pan: -0.75 });
     expect(tracks[1]).toMatchObject({ volume: 0.9, pan: 0.5 });
   });
@@ -103,13 +103,13 @@ describe('renderEvents: matching what playback does', () => {
         score.tracks[1],
       ],
     };
-    const { tracks } = renderEvents(drums);
+    const { tracks } = renderEvents(drums, { humanize: false });
     expect(tracks[0].isPercussion).toBe(true);
     expect(tracks[1].isPercussion).toBe(false);
   });
 
   it('hands the renderer both program and name, so it can pick the voice playback would', () => {
-    const { tracks } = renderEvents(twoTrack());
+    const { tracks } = renderEvents(twoTrack(), { humanize: false });
     expect(tracks[0]).toMatchObject({
       midiProgram: expect.any(Number),
       instrumentName: expect.any(String),
@@ -118,7 +118,7 @@ describe('renderEvents: matching what playback does', () => {
 
   it('tags every event with the track it belongs to', () => {
     const score = twoTrack();
-    const { events } = renderEvents(score);
+    const { events } = renderEvents(score, { humanize: false });
     expect(events.map((e: { trackId: string }) => e.trackId)).toEqual([
       score.tracks[0].id,
       score.tracks[1].id,
@@ -128,14 +128,14 @@ describe('renderEvents: matching what playback does', () => {
 
 describe('renderEvents', () => {
   it('turns every sounding note into a timed event', () => {
-    const { events } = renderEvents(twoTrack());
+    const { events } = renderEvents(twoTrack(), { humanize: false });
     expect(events).toHaveLength(2);
     expect(events.map(e => e.midi)).toEqual([60, 55]);
   });
 
   it('places events in seconds, in order', () => {
     // 120bpm default, so a quarter note is half a second.
-    const { events } = renderEvents(twoTrack());
+    const { events } = renderEvents(twoTrack(), { humanize: false });
     expect(events[0].startSec).toBeCloseTo(0, 5);
     expect(events[1].startSec).toBeCloseTo(0.5, 5);
     expect(events[0].durationSec).toBeCloseTo(0.5, 5);
@@ -148,7 +148,9 @@ describe('renderEvents', () => {
       ...score,
       tracks: score.tracks.map((t, i) => (i === 0 ? { ...t, muted: true } : t)),
     };
-    expect(renderEvents(muted).events.map(e => e.midi)).toEqual([55]);
+    expect(
+      renderEvents(muted, { humanize: false }).events.map(e => e.midi)
+    ).toEqual([55]);
   });
 
   it('plays only soloed tracks when anything is soloed', () => {
@@ -157,7 +159,9 @@ describe('renderEvents', () => {
       ...score,
       tracks: score.tracks.map((t, i) => (i === 0 ? { ...t, solo: true } : t)),
     };
-    expect(renderEvents(soloed).events.map(e => e.midi)).toEqual([60]);
+    expect(
+      renderEvents(soloed, { humanize: false }).events.map(e => e.midi)
+    ).toEqual([60]);
   });
 
   it('lets solo win over mute on the same track', () => {
@@ -168,11 +172,15 @@ describe('renderEvents', () => {
         i === 0 ? { ...t, solo: true, muted: true } : t
       ),
     };
-    expect(renderEvents(both).events.map(e => e.midi)).toEqual([60]);
+    expect(
+      renderEvents(both, { humanize: false }).events.map(e => e.midi)
+    ).toEqual([60]);
   });
 
   it('leaves a tail so the last note is not cut off', () => {
-    const { events, durationSec } = renderEvents(twoTrack());
+    const { events, durationSec } = renderEvents(twoTrack(), {
+      humanize: false,
+    });
     const lastEnd = Math.max(...events.map(e => e.startSec + e.durationSec));
     expect(durationSec).toBeGreaterThan(lastEnd);
   });
@@ -183,13 +191,13 @@ describe('renderEvents', () => {
       measures: 1,
       tracks: [{ name: 'A' }],
     });
-    const plan = renderEvents(empty);
+    const plan = renderEvents(empty, { humanize: false });
     expect(plan.events).toEqual([]);
     expect(plan.durationSec).toBeGreaterThan(0);
   });
 
   it('normalises velocity into 0..1 for the synth', () => {
-    for (const e of renderEvents(twoTrack()).events) {
+    for (const e of renderEvents(twoTrack(), { humanize: false }).events) {
       expect(e.velocity).toBeGreaterThan(0);
       expect(e.velocity).toBeLessThanOrEqual(1);
     }
@@ -236,15 +244,15 @@ describe('parity with live playback', () => {
   it('sustains a tied note rather than re-articulating it', () => {
     // Measured before the fix: playback sounded one note of 960 ticks while the
     // export emitted two of 0.5s. An export must match what you just heard.
-    const events = renderEvents(tiedScore()).events;
+    const events = renderEvents(tiedScore(), { humanize: false }).events;
     expect(events).toHaveLength(1);
     expect(events[0].durationSec).toBeCloseTo(1, 5);
   });
 
   it('emits exactly the notes live playback schedules', () => {
     const score = tiedScore();
-    expect(renderEvents(score).events).toHaveLength(
-      playbackPlan(score).notes.length
+    expect(renderEvents(score, { humanize: false }).events).toHaveLength(
+      playbackPlan(score, { humanize: false }).notes.length
     );
   });
 });
