@@ -33,7 +33,10 @@ describe('single source of truth', () => {
     );
     expect(owned.length).toBeGreaterThan(0);
 
-    const pattern = new RegExp(`^(?:export )?const (${owned.join('|')})\\s*[:=]`, 'm');
+    const pattern = new RegExp(
+      `^(?:export )?const (${owned.join('|')})\\s*[:=]`,
+      'm'
+    );
     const offenders: string[] = [];
     for (const file of globSync('src/**/*.{ts,tsx}')) {
       if (file.includes('.test.')) continue;

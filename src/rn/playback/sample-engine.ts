@@ -68,6 +68,7 @@ import type {
 import { applySustainLoop } from './sustain-loop.js';
 import {
   SOUNDING_INTERVAL_MS,
+  soundingRenderDelayOrDefault,
   visualOffsetSeconds,
 } from '../../shared/visual-sync.js';
 
@@ -119,7 +120,7 @@ type Voice = {
 type TrackStrip = { gain: RNGainNode; panner: RNStereoPanner };
 
 function defaultFetchPack(url: string): Promise<string> {
-  return fetch(url).then((r) => {
+  return fetch(url).then(r => {
     if (!r.ok) throw new Error(`Sample pack ${url} responded ${r.status}`);
     return r.text();
   });
@@ -131,7 +132,9 @@ function defaultStartPump(tick: () => void, intervalMs: number): () => void {
 }
 
 export class RNSamplePlaybackEngine implements PlaybackEngine {
-  private readonly deps: Required<Omit<SampleEngineDeps, 'packBase' | 'percussionBase'>> & {
+  private readonly deps: Required<
+    Omit<SampleEngineDeps, 'packBase' | 'percussionBase'>
+  > & {
     packBase?: string;
     percussionBase?: string;
   };
@@ -176,7 +179,10 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
   private readonly strips = new Map<string, TrackStrip>();
   private readonly voices: Voice[] = [];
   /** Clicks already on the graph, so pause and stop can take them back. */
-  private readonly pendingClicks: Array<{ osc: { stop(when?: number): void }; endsAt: number }> = [];
+  private readonly pendingClicks: Array<{
+    osc: { stop(when?: number): void };
+    endsAt: number;
+  }> = [];
   private readonly auditioned = new Map<number, Voice>();
   /**
    * What is sounding, read off the clock rather than off the voice list.
@@ -213,7 +219,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     this.master = master;
     this.library = new PackLibrary({
       fetchPack: this.deps.fetchPack,
-      decodeAudioData: (bytes) => api.decodeAudioData(bytes),
+      decodeAudioData: bytes => api.decodeAudioData(bytes),
       packBase: this.deps.packBase,
       percussionBase: this.deps.percussionBase,
     });
@@ -245,7 +251,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     this.plan = plan;
     this.tempo = plan.tempo;
     this.queue.load(plan.notes);
-    this.sounding.load(plan.notes, (tick) => plan.tempo.ticksToSeconds(tick));
+    this.sounding.load(plan.notes, tick => plan.tempo.ticksToSeconds(tick));
     this.clicks = plan.clicks;
     this.clickCursor = 0;
     this.headroom = headroomTrimFor(plan.tracks.length);
@@ -265,7 +271,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
 
   /** The pack name for a track, honouring the percussion/kit distinction. */
   private packNameForTrack(trackId: string): string | null {
-    const track = this.plan?.tracks.find((t) => t.id === trackId);
+    const track = this.plan?.tracks.find(t => t.id === trackId);
     if (!track) return null;
     // The kit-versus-instrument distinction is already resolved into
     // `voiceProgram`/`voiceName` by music_lib, which owns the GM tables.
@@ -330,7 +336,10 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     // running: its handle would be overwritten and nothing could ever stop it.
     this.haltPump();
     this.stopPump = this.deps.startPump(() => this.pump(), PUMP_INTERVAL_MS);
-    this.stopPositionTimer = this.deps.startPump(() => this.reportPosition(), POSITION_TICK_INTERVAL_MS);
+    this.stopPositionTimer = this.deps.startPump(
+      () => this.reportPosition(),
+      POSITION_TICK_INTERVAL_MS
+    );
     // Its own cadence, faster than the position report: the caret interpolates
     // between position ticks and does not need them often, while a key light
     // is a discrete event with nothing to interpolate it.
@@ -365,7 +374,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
   seek(tick: number): void {
     this.positionTick = Math.max(0, tick);
     this.queue.seekToTick(this.positionTick);
-    this.clickCursor = this.clicks.findIndex((c) => c.tick >= this.positionTick);
+    this.clickCursor = this.clicks.findIndex(c => c.tick >= this.positionTick);
     if (this.clickCursor < 0) this.clickCursor = this.clicks.length;
     this.originTick = this.positionTick;
     this.originContextTime = this.ctx?.currentTime ?? 0;
@@ -394,7 +403,8 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
   /** Score tick at the context's current time, from the tempo map and speed. */
   private currentTick(): number {
     if (!this.ctx || !this.tempo) return this.positionTick;
-    const elapsed = (this.ctx.currentTime - this.originContextTime) * this.tempoMultiplier;
+    const elapsed =
+      (this.ctx.currentTime - this.originContextTime) * this.tempoMultiplier;
     const originSeconds = this.tempo.ticksToSeconds(this.originTick);
     return this.tempo.secondsToTicks(originSeconds + elapsed);
   }
@@ -402,7 +412,8 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
   private secondsForTick(tick: number): number {
     if (!this.tempo || !this.ctx) return 0;
     const fromOrigin =
-      (this.tempo.ticksToSeconds(tick) - this.tempo.ticksToSeconds(this.originTick)) /
+      (this.tempo.ticksToSeconds(tick) -
+        this.tempo.ticksToSeconds(this.originTick)) /
       this.tempoMultiplier;
     return this.originContextTime + fromOrigin;
   }
@@ -439,7 +450,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     if (!this.tempo) return;
     const at =
       this.tempo.ticksToSeconds(this.currentTick()) +
-      visualOffsetSeconds(this.ctx?.outputLatency);
+      visualOffsetSeconds(this.ctx?.outputLatency, this.soundingRenderDelay);
     const notes = this.sounding.advanceTo(at);
     if (notes) this.setActiveNotes(notes);
   }
@@ -479,7 +490,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     const drained = this.queue.drainUntil(horizonTick);
     const { due } = planDispatch({
       notes: drained,
-      secondsForTick: (tick) => this.secondsForTick(tick),
+      secondsForTick: tick => this.secondsForTick(tick),
       positionSeconds: now,
       graceSeconds: GRACE_SECONDS,
     });
@@ -491,8 +502,11 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
 
   private tickAtContextTime(contextTime: number): number {
     if (!this.tempo) return this.positionTick;
-    const elapsed = (contextTime - this.originContextTime) * this.tempoMultiplier;
-    return this.tempo.secondsToTicks(this.tempo.ticksToSeconds(this.originTick) + elapsed);
+    const elapsed =
+      (contextTime - this.originContextTime) * this.tempoMultiplier;
+    return this.tempo.secondsToTicks(
+      this.tempo.ticksToSeconds(this.originTick) + elapsed
+    );
   }
 
   /** Mute/solo, with solo winning: any solo means everything unsoloed is silent. */
@@ -504,13 +518,18 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
   private startNote(note: ScheduledNote, atSeconds: number): void {
     const packName = this.packNameForTrack(note.trackId);
     if (!packName) return;
-    const track = this.plan?.tracks.find((t) => t.id === note.trackId);
-    const voicing = this.library?.voice(packName, note.midi, Boolean(track?.isPercussion));
+    const track = this.plan?.tracks.find(t => t.id === note.trackId);
+    const voicing = this.library?.voice(
+      packName,
+      note.midi,
+      Boolean(track?.isPercussion)
+    );
     if (!voicing) return;
     const { choice, buffer } = voicing;
 
     const durationSeconds =
-      this.secondsForTick(note.tick + note.durTicks) - this.secondsForTick(note.tick);
+      this.secondsForTick(note.tick + note.durTicks) -
+      this.secondsForTick(note.tick);
     const program = track?.midiProgram;
     const plan = planVoice({
       atSeconds,
@@ -530,7 +549,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
       buffer,
       plan,
       program !== undefined && sustains(program),
-      this.stripFor(note.trackId),
+      this.stripFor(note.trackId)
     );
     this.voices.push(voice);
   }
@@ -558,7 +577,9 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
   /** Volume, pan, mute and solo, resolved onto one track's strip. */
   private applyStrip(trackId: string, strip: TrackStrip): void {
     const level = this.mix.get(trackId);
-    strip.gain.gain.value = this.audibleTrack(trackId) ? (level?.volume ?? 1) : 0;
+    strip.gain.gain.value = this.audibleTrack(trackId)
+      ? (level?.volume ?? 1)
+      : 0;
     strip.panner.pan.value = Math.max(-1, Math.min(1, level?.pan ?? 0));
   }
 
@@ -590,7 +611,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     buffer: RNAudioBuffer,
     plan: VoicePlan,
     mayLoop: boolean,
-    destination: RNAudioNode = this.master!,
+    destination: RNAudioNode = this.master!
   ): Voice {
     const ctx = this.ctx!;
     const source = ctx.createBufferSource();
@@ -599,7 +620,13 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     // exponential conversion here to get subtly wrong. Packs cover every key,
     // so this is normally 0 and only matters for a pack with gaps.
     if (plan.detuneCents !== 0) source.detune.value = plan.detuneCents;
-    if (mayLoop) applySustainLoop(source, buffer, plan.releaseAt - plan.startAt, plan.sampleMidi);
+    if (mayLoop)
+      applySustainLoop(
+        source,
+        buffer,
+        plan.releaseAt - plan.startAt,
+        plan.sampleMidi
+      );
 
     const amp = ctx.createGain();
     amp.gain.setValueAtTime(plan.gain, plan.startAt);
@@ -630,7 +657,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     detuneCents: number,
     gain: number,
     startAt: number,
-    releaseAt: number,
+    releaseAt: number
   ): Voice {
     return this.buildVoiceFromPlan(
       buffer,
@@ -644,7 +671,7 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
         detuneCents,
         sampleMidi: 0,
       },
-      false,
+      false
     );
   }
 
@@ -714,9 +741,13 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     // can be taken back, and a piece is minutes of beats.
     const cutoff = this.ctx!.currentTime;
     for (let i = this.pendingClicks.length - 1; i >= 0; i -= 1) {
-      if (this.pendingClicks[i]!.endsAt <= cutoff) this.pendingClicks.splice(i, 1);
+      if (this.pendingClicks[i]!.endsAt <= cutoff)
+        this.pendingClicks.splice(i, 1);
     }
-    while (this.clickCursor < this.clicks.length && this.clicks[this.clickCursor]!.tick <= horizonTick) {
+    while (
+      this.clickCursor < this.clicks.length &&
+      this.clicks[this.clickCursor]!.tick <= horizonTick
+    ) {
       const click = this.clicks[this.clickCursor]!;
       this.clickCursor += 1;
       const at = this.secondsForTick(click.tick);
@@ -804,6 +835,13 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     this.applyAllStrips();
   }
 
+  /** Publish-to-paint for the lit notes; see `PlaybackEngine`. */
+  private soundingRenderDelay = soundingRenderDelayOrDefault(Number.NaN);
+
+  setSoundingRenderDelay(seconds: number): void {
+    this.soundingRenderDelay = soundingRenderDelayOrDefault(seconds);
+  }
+
   setMetronome(enabled: boolean): void {
     this.metronomeOn = enabled;
   }
@@ -824,7 +862,10 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     void this.auditionNote(midi, auditionVoice);
   }
 
-  private async auditionNote(midi: number, auditionVoice: AuditionVoice): Promise<void> {
+  private async auditionNote(
+    midi: number,
+    auditionVoice: AuditionVoice
+  ): Promise<void> {
     await this.initialize();
     // Already resolved by the caller: a percussion `program` addresses a kit,
     // and only music_lib's GM tables know which kit an address falls in.

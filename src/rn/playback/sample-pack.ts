@@ -54,7 +54,10 @@ export type SampleChoice = {
  * them is allowed, and a music app that stops working when someone else's
  * GitHub Pages does is not a good trade.
  */
-export function sampleUrlFor(instrument: string, base: string = DEFAULT_BASE): string {
+export function sampleUrlFor(
+  instrument: string,
+  base: string = DEFAULT_BASE
+): string {
   const root = base.endsWith('/') ? base : `${base}/`;
   return `${root}${instrument}-mp3.js`;
 }
@@ -79,7 +82,9 @@ export function noteNameToMidi(name: string): number | null {
 export function parseSamplePack(body: string): SamplePack {
   const header = /MIDI\.Soundfont\.([A-Za-z0-9_]+)\s*=/.exec(body);
   if (!header) {
-    throw new Error('Response is not a MIDI.js sample pack: no `MIDI.Soundfont.<instrument> =` found.');
+    throw new Error(
+      'Response is not a MIDI.js sample pack: no `MIDI.Soundfont.<instrument> =` found.'
+    );
   }
 
   const samples = new Map<number, string>();
@@ -90,7 +95,9 @@ export function parseSamplePack(body: string): SamplePack {
   }
 
   if (samples.size === 0) {
-    throw new Error('Response is not a MIDI.js sample pack: no note entries found.');
+    throw new Error(
+      'Response is not a MIDI.js sample pack: no note entries found.'
+    );
   }
   return { instrument: header[1]!, samples };
 }
@@ -104,13 +111,21 @@ export function parseSamplePack(body: string): SamplePack {
  * nearest halves the worst-case bend. Packs cover roughly every third key, so
  * the usual bend is one or two semitones.
  */
-export function nearestSample(pack: SamplePack, midi: number): SampleChoice | null {
+export function nearestSample(
+  pack: SamplePack,
+  midi: number
+): SampleChoice | null {
   let best: number | null = null;
   for (const sampled of pack.samples.keys()) {
-    if (best === null || Math.abs(sampled - midi) < Math.abs(best - midi)) best = sampled;
+    if (best === null || Math.abs(sampled - midi) < Math.abs(best - midi))
+      best = sampled;
   }
   if (best === null) return null;
-  return { midi: best, uri: pack.samples.get(best)!, detuneCents: (midi - best) * 100 };
+  return {
+    midi: best,
+    uri: pack.samples.get(best)!,
+    detuneCents: (midi - best) * 100,
+  };
 }
 
 /**
@@ -123,7 +138,10 @@ export function nearestSample(pack: SamplePack, midi: number): SampleChoice | nu
  * does not define a slot must play nothing, which is what a real drum machine
  * does too.
  */
-export function exactSample(pack: SamplePack, midi: number): SampleChoice | null {
+export function exactSample(
+  pack: SamplePack,
+  midi: number
+): SampleChoice | null {
   const uri = pack.samples.get(midi);
   return uri ? { midi, uri, detuneCents: 0 } : null;
 }

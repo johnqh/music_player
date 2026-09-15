@@ -10,6 +10,8 @@
 import { RNSamplePlaybackEngine } from './playback/sample-engine.js';
 import { createRNSoundfontRenderer } from './audio/offline-render.js';
 import { MusicPlayer } from '../player.js';
+import { renderScoreWith } from '../shared/render-score.js';
+import type { DecodedAudio, Score } from '@sudobility/music_types';
 
 export * from '../types.js';
 export * from '../singleton.js';
@@ -103,4 +105,21 @@ export function renderSamples(options: RNMusicPlayerOptions = {}) {
     // renderer reading different bytes is a different instrument.
     ...(options.fetchPack ? { fetchPack: options.fetchPack } : {}),
   }).render;
+}
+
+/**
+ * A score rendered to PCM through the same packs playback uses — the whole of
+ * an audio export short of encoding it.
+ *
+ * `renderEvents` + `renderSamples`, joined here so the two apps cannot join
+ * them differently (see `shared/render-score.ts`). Same name and shape as the
+ * web entry; only the soundfont argument is this platform's. Pass the score the
+ * export is *of*: scope (hidden tracks) is resolved before this, mute and solo
+ * within it. Hand the result to `io.saveAudio`.
+ */
+export function renderScoreAudio(
+  score: Score,
+  soundfont: RNMusicPlayerOptions = {}
+): Promise<DecodedAudio> {
+  return renderScoreWith(score, renderSamples(soundfont));
 }

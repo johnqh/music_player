@@ -40,7 +40,10 @@ export interface IMusicPlayer {
    * Rejects on failure rather than swallowing. The host translates: the message
    * a user sees is a localized string, and this package carries no copy.
    */
-  load(score: Score, opts?: { visibleTrackIds?: readonly string[] }): Promise<void>;
+  load(
+    score: Score,
+    opts?: { visibleTrackIds?: readonly string[] }
+  ): Promise<void>;
 
   play(): Promise<void>;
   pause(): void;
@@ -52,6 +55,12 @@ export interface IMusicPlayer {
   setLoop(range: ScoreRange | null): void;
   setTempoMultiplier(multiplier: number): void;
   setMetronome(enabled: boolean): void;
+  /**
+   * How long the host takes to draw a change of lit notes, in seconds; the lit
+   * notes are published that far ahead so they land with the sound. The score
+   * canvas measures it and the shared playback binding reports it.
+   */
+  setSoundingRenderDelay(seconds: number): void;
   setMasterVolume(volume: number): void;
 
   /** Live, without rebuilding the note queue: mixing is not editing. */

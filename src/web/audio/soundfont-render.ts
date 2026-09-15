@@ -26,7 +26,11 @@ import type { ChannelAssignment } from '../../playback/channel-allocator.js';
 import { getOfflineSynth } from './offline-synth.js';
 import type { LoadedOfflineSynth } from './offline-synth.js';
 
-export type { RenderEvent, RenderPlan, RenderTrack } from '@sudobility/music_types';
+export type {
+  RenderEvent,
+  RenderPlan,
+  RenderTrack,
+} from '@sudobility/music_types';
 
 export type SoundfontRendererAssets = {
   fluidsynthModuleUrl: string;
@@ -48,7 +52,7 @@ const STANDARD_KIT = 0;
 type TimedEvent = { atFrame: number; run: () => void };
 
 export function createSoundfontRenderer(
-  assets: SoundfontRendererAssets,
+  assets: SoundfontRendererAssets
 ): (plan: RenderPlan) => Promise<DecodedAudio> {
   const acquire =
     assets.acquireSynth ??
@@ -62,10 +66,12 @@ export function createSoundfontRenderer(
 
   return async function render(plan: RenderPlan): Promise<DecodedAudio> {
     const { synth, sfontId, sampleRate } = await acquire(SAMPLE_RATE);
-    const totalFrames = Math.ceil(Math.max(0.1, plan.durationSec + TAIL_SECONDS) * sampleRate);
+    const totalFrames = Math.ceil(
+      Math.max(0.1, plan.durationSec + TAIL_SECONDS) * sampleRate
+    );
 
     const { assignments, instanceCount } = allocateChannels(
-      plan.tracks.map((t) => ({ id: t.id, isPercussion: t.isPercussion })),
+      plan.tracks.map(t => ({ id: t.id, isPercussion: t.isPercussion }))
     );
 
     // The same trim `SynthHost` puts on the live master bus, for the same
@@ -85,7 +91,9 @@ export function createSoundfontRenderer(
     // synths, did not. Passes cost render time, and only a score too big for
     // one synth pays it.
     for (let instance = 0; instance < instanceCount; instance += 1) {
-      renderPass(plan.tracks.filter((t) => assignments.get(t.id)?.instance === instance));
+      renderPass(
+        plan.tracks.filter(t => assignments.get(t.id)?.instance === instance)
+      );
     }
 
     synth.midiAllSoundsOff();
@@ -122,13 +130,22 @@ export function createSoundfontRenderer(
           // track's program is its kit.
           synth.midiProgramSelect(channel, sfontId, DRUM_BANK, STANDARD_KIT);
           if (track.midiProgram !== STANDARD_KIT) {
-            synth.midiProgramSelect(channel, sfontId, DRUM_BANK, track.midiProgram);
+            synth.midiProgramSelect(
+              channel,
+              sfontId,
+              DRUM_BANK,
+              track.midiProgram
+            );
           }
         } else {
           synth.midiSetChannelType(channel, false);
           synth.midiProgramSelect(channel, sfontId, 0, track.midiProgram);
         }
-        synth.midiControl(channel, CC_VOLUME, Math.round(track.volume * MAX_CC));
+        synth.midiControl(
+          channel,
+          CC_VOLUME,
+          Math.round(track.volume * MAX_CC)
+        );
         synth.midiControl(channel, CC_PAN, panToCc(track.pan));
       }
 
@@ -138,13 +155,18 @@ export function createSoundfontRenderer(
         const assignment = channelFor.get(event.trackId);
         if (!assignment) continue; // a track this pass does not own, or one the plan never listed
         const { channel } = assignment;
-        const velocity = Math.max(1, Math.min(MAX_CC, Math.round(event.velocity * MAX_CC)));
+        const velocity = Math.max(
+          1,
+          Math.min(MAX_CC, Math.round(event.velocity * MAX_CC))
+        );
         timeline.push({
           atFrame: Math.round(event.startSec * sampleRate),
           run: () => synth.midiNoteOn(channel, event.midi, velocity),
         });
         timeline.push({
-          atFrame: Math.round((event.startSec + event.durationSec) * sampleRate),
+          atFrame: Math.round(
+            (event.startSec + event.durationSec) * sampleRate
+          ),
           run: () => synth.midiNoteOff(channel, event.midi),
         });
       }
@@ -156,7 +178,8 @@ export function createSoundfontRenderer(
 
       for (let frame = 0; frame < totalFrames; frame += BLOCK_FRAMES) {
         const blockEnd = frame + BLOCK_FRAMES;
-        while (next < timeline.length && timeline[next].atFrame < blockEnd) timeline[next++].run();
+        while (next < timeline.length && timeline[next].atFrame < blockEnd)
+          timeline[next++].run();
 
         synth.render([left, right]);
 

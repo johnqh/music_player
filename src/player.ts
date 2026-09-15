@@ -21,9 +21,7 @@ import type {
   SoundingNote,
   TransportPlaybackState,
 } from '@sudobility/music_types';
-import type {
-  PlaybackEngine,
-} from './engine.js';
+import type { PlaybackEngine } from './engine.js';
 import { getMusicPositionSource } from '@sudobility/music_types';
 import { PlaybackBus } from './shared/bus.js';
 import { playbackPlan, playbackTracks, resolveVoice } from './shared/plan.js';
@@ -78,9 +76,11 @@ export class MusicPlayer implements IMusicPlayer {
       player's own reports, and following those would be seeking to where it
       already is, thirty times a second.
     */
-    this.stopFollowingPosition = getMusicPositionSource().subscribeToMoves((tick) => {
-      this.seek(tick);
-    });
+    this.stopFollowingPosition = getMusicPositionSource().subscribeToMoves(
+      tick => {
+        this.seek(tick);
+      }
+    );
 
     engine.setObserver({
       /*
@@ -139,9 +139,9 @@ export class MusicPlayer implements IMusicPlayer {
     }
 
     const plan = playbackPlan(score);
-      // Kept in step with what the engine holds: a repeat added or removed
-      // changes the mapping, and a stale one would put the caret in the wrong
-      // bar for every frame until the next load.
+    // Kept in step with what the engine holds: a repeat added or removed
+    // changes the mapping, and a stale one would put the caret in the wrong
+    // bar for every frame until the next load.
     this.timeline = plan.timeline;
     this.tempo = plan.tempo;
     await this.engine.load(plan);
@@ -196,6 +196,10 @@ export class MusicPlayer implements IMusicPlayer {
 
   setMetronome(enabled: boolean): void {
     this.engine.setMetronome(enabled);
+  }
+
+  setSoundingRenderDelay(seconds: number): void {
+    this.engine.setSoundingRenderDelay(seconds);
   }
 
   setMasterVolume(volume: number): void {

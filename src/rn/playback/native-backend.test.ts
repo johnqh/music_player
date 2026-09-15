@@ -129,6 +129,66 @@ describe('NativeSynthBackend', () => {
     expect(backend.outputLatency()).toBeCloseTo(0.02);
   });
 
+  it('crosses to native for the clock a few times a second, not on every read', async () => {
+    const f = fakeApi();
+    let audio = 10;
+    let wall = 100;
+    const currentTime = vi.fn(() => audio);
+    const outputLatency = vi.fn(() => 0.02);
+    f.synth.currentTime = currentTime;
+    f.synth.outputLatency = outputLatency;
+    const backend = new NativeSynthBackend({
+      api: f.api,
+      soundfontUri: 'f',
+      wallClock: () => wall,
+    });
+    await backend.prepare({ instanceCount: 1, onProgress: vi.fn() });
+    currentTime.mockClear();
+    outputLatency.mockClear();
+
+    expect(backend.now()).toBe(10);
+    // Between reads it extrapolates at wall-clock speed.
+    wall += 0.05;
+    audio += 0.05;
+    expect(backend.now()).toBeCloseTo(10.05);
+    wall += 0.05;
+    audio += 0.05;
+    expect(backend.now()).toBeCloseTo(10.1);
+    expect(currentTime).toHaveBeenCalledTimes(1);
+
+    // And re-anchors once the extrapolation is old enough to have drifted.
+    wall += 0.5;
+    audio += 0.5;
+    expect(backend.now()).toBeCloseTo(10.6);
+    expect(currentTime).toHaveBeenCalledTimes(2);
+
+    // Latency is a property of the open driver, read once.
+    backend.outputLatency();
+    backend.outputLatency();
+    expect(outputLatency).toHaveBeenCalledTimes(1);
+  });
+
+  it('never reads the clock backwards across a re-anchor', async () => {
+    const f = fakeApi();
+    let wall = 100;
+    let audio = 10;
+    f.synth.currentTime = () => audio;
+    const backend = new NativeSynthBackend({
+      api: f.api,
+      soundfontUri: 'f',
+      wallClock: () => wall,
+    });
+    await backend.prepare({ instanceCount: 1, onProgress: vi.fn() });
+    backend.now();
+    wall += 0.4;
+    const projected = backend.now();
+    // The audio clock advances in render blocks, so a fresh read can land a
+    // little behind the projection.
+    audio += 0.39;
+    wall += 0.3;
+    expect(backend.now()).toBeGreaterThanOrEqual(projected);
+  });
+
   it('says so rather than failing obscurely with no native synth', async () => {
     const backend = new NativeSynthBackend({
       api: fakeApi(false).api,

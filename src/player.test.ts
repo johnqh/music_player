@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MusicPlayer } from './player.js';
 import { twinkleScore } from '@sudobility/music_types/test';
-import type {
-  PlaybackObserver,
-} from './engine.js';
+import type { PlaybackObserver } from './engine.js';
 
 /** A recording stand-in for the platform engine. */
 function fakeEngine() {

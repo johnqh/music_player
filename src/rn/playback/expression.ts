@@ -95,7 +95,10 @@ export function cutoffFor(program: number, velocity: number): number | null {
       }
     }
     const t = (v - lower) / (upper - lower);
-    hz = 2 ** (Math.log2(at(lower)) + t * (Math.log2(at(upper)) - Math.log2(at(lower))));
+    hz =
+      2 **
+      (Math.log2(at(lower)) +
+        t * (Math.log2(at(upper)) - Math.log2(at(lower))));
   }
 
   return hz >= FILTER_WORTH_IT_HZ ? null : hz;

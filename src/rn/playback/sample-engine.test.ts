@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SOUNDING_INTERVAL_MS } from '../../shared/visual-sync.js';
 import { testNote, testPlan, testTrack } from '../../shared/test-plan.js';
 import type {
-  SoundingNote, PlaybackLoadState, TransportPlaybackState } from '@sudobility/music_types';
+  SoundingNote,
+  PlaybackLoadState,
+  TransportPlaybackState,
+} from '@sudobility/music_types';
 import { RNSamplePlaybackEngine, base64ToBytes } from './sample-engine.js';
 import type { AudioApi } from './audio-api.js';
 
@@ -14,14 +17,24 @@ import type { AudioApi } from './audio-api.js';
  * above that line: which notes are dispatched, when, at what gain, for which
  * tracks. This records the calls so those can be asserted.
  */
-type StartedSource = { detune: number; startAt: number; stopAt: number | null; gainAt: number; cutoff: number | null; looped: boolean };
+type StartedSource = {
+  detune: number;
+  startAt: number;
+  stopAt: number | null;
+  gainAt: number;
+  cutoff: number | null;
+  looped: boolean;
+};
 
 class FakeGraph {
   currentTime = 0;
   readonly sources: StartedSource[] = [];
   readonly oscillators: Array<{ hz: number; startAt: number }> = [];
   /** Every gain node built, so a test can read the master's and each track's level. */
-  readonly gains: Array<{ gain: { value: number }; readonly _assigned: number | null }> = [];
+  readonly gains: Array<{
+    gain: { value: number };
+    readonly _assigned: number | null;
+  }> = [];
   readonly panners: Array<{ pan: { value: number } }> = [];
   closed = false;
 
@@ -29,7 +42,9 @@ class FakeGraph {
 
   /** The levels actually set as a mix — the master's and each track's. */
   get levels(): number[] {
-    return this.gains.map((g) => g._assigned).filter((v): v is number => v !== null);
+    return this.gains
+      .map(g => g._assigned)
+      .filter((v): v is number => v !== null);
   }
 
   constructor() {
@@ -75,7 +90,7 @@ class FakeGraph {
         // two happened is what lets a test address the mix without counting
         // nodes.
         let assigned: number | null = null;
-        const scheduled = param((v) => {
+        const scheduled = param(v => {
           if (peak === 0) peak = v;
         });
         const node = {
@@ -101,13 +116,22 @@ class FakeGraph {
         return node;
       },
       createStereoPanner() {
-        const node = { pan: param(), connect: () => undefined, disconnect: () => undefined };
+        const node = {
+          pan: param(),
+          connect: () => undefined,
+          disconnect: () => undefined,
+        };
         graph.panners.push(node);
         return node;
       },
       createBufferSource() {
         const record: StartedSource = {
-          detune: 0, startAt: -1, stopAt: null, gainAt: 0, cutoff: null, looped: false,
+          detune: 0,
+          startAt: -1,
+          stopAt: null,
+          gainAt: 0,
+          cutoff: null,
+          looped: false,
         };
         // The filter and the loop attach to whichever source was built last —
         // `buildVoiceFromPlan` always creates the source first.
@@ -143,20 +167,24 @@ class FakeGraph {
           disconnect: () => undefined,
         };
       },
-        createBiquadFilter() {
-          const record = building;
-          return {
-            type: 'lowpass',
-            frequency: {
-              ...param(),
-              set value(v: number) { if (record) record.cutoff = v; },
-              get value() { return record?.cutoff ?? 0; },
+      createBiquadFilter() {
+        const record = building;
+        return {
+          type: 'lowpass',
+          frequency: {
+            ...param(),
+            set value(v: number) {
+              if (record) record.cutoff = v;
             },
-            Q: param(),
-            connect: () => undefined,
-            disconnect: () => undefined,
-          };
-        },
+            get value() {
+              return record?.cutoff ?? 0;
+            },
+          },
+          Q: param(),
+          connect: () => undefined,
+          disconnect: () => undefined,
+        };
+      },
       createOscillator() {
         const rec = { hz: 0, startAt: 0 };
         return {
@@ -202,10 +230,25 @@ class FakeGraph {
 
 /** A pack body covering every key, like the real FluidR3 packs do. */
 function packBody(instrument: string): string {
-  const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const names = [
+    'C',
+    'C#',
+    'D',
+    'D#',
+    'E',
+    'F',
+    'F#',
+    'G',
+    'G#',
+    'A',
+    'A#',
+    'B',
+  ];
   const entries: string[] = [];
   for (let midi = 21; midi <= 108; midi += 1) {
-    entries.push(`"${names[midi % 12]}${Math.floor(midi / 12) - 1}": "data:audio/mp3;base64,AAAA"`);
+    entries.push(
+      `"${names[midi % 12]}${Math.floor(midi / 12) - 1}": "data:audio/mp3;base64,AAAA"`
+    );
   }
   return `MIDI.Soundfont.${instrument} = {${entries.join(',')}}`;
 }
@@ -221,40 +264,63 @@ function packBody(instrument: string): string {
  * assertion passed against an engine that bent every drum.
  */
 function kitBody(name: string): string {
-  const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const names = [
+    'C',
+    'C#',
+    'D',
+    'D#',
+    'E',
+    'F',
+    'F#',
+    'G',
+    'G#',
+    'A',
+    'A#',
+    'B',
+  ];
   const entries: string[] = [];
   for (let midi = 35; midi <= 81; midi += 1) {
     if (midi === 43) continue;
-    entries.push(`"${names[midi % 12]}${Math.floor(midi / 12) - 1}": "data:audio/mp3;base64,AAAA"`);
+    entries.push(
+      `"${names[midi % 12]}${Math.floor(midi / 12) - 1}": "data:audio/mp3;base64,AAAA"`
+    );
   }
   return `MIDI.Soundfont.${name} = {${entries.join(',')}}`;
 }
 
-function makeEngine(overrides: { fetchPack?: (url: string) => Promise<string>; percussionBase?: string } = {}) {
+function makeEngine(
+  overrides: {
+    fetchPack?: (url: string) => Promise<string>;
+    percussionBase?: string;
+  } = {}
+) {
   const graph = new FakeGraph();
   const pumps: Array<{ tick: () => void; intervalMs: number }> = [];
   const engine = new RNSamplePlaybackEngine({
     loadAudioApi: async () => graph.api,
-    percussionBase: overrides.percussionBase ?? 'https://app.example.com/audio/percussion/',
+    percussionBase:
+      overrides.percussionBase ?? 'https://app.example.com/audio/percussion/',
     fetchPack:
       overrides.fetchPack ??
-      (async (url) => {
+      (async url => {
         const name = /\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!;
         return name.startsWith('percussion_') ? kitBody(name) : packBody(name);
       }),
     startPump: (tick, intervalMs) => {
       pumps.push({ tick, intervalMs });
       return () => {
-        const i = pumps.findIndex((p) => p.tick === tick);
+        const i = pumps.findIndex(p => p.tick === tick);
         if (i >= 0) pumps.splice(i, 1);
       };
     },
   });
   /** Runs every registered timer once — the pump, the position reporter and the lit keys. */
-  const step = () => [...pumps].forEach((p) => p.tick());
+  const step = () => [...pumps].forEach(p => p.tick());
   /** Runs only the lit-keys timer, so a test can show they do not wait for the others. */
   const stepSounding = () =>
-    [...pumps].filter((p) => p.intervalMs === SOUNDING_INTERVAL_MS).forEach((p) => p.tick());
+    [...pumps]
+      .filter(p => p.intervalMs === SOUNDING_INTERVAL_MS)
+      .forEach(p => p.tick());
   return { engine, graph, step, stepSounding };
 }
 
@@ -292,8 +358,18 @@ const SLOW_TEMPO = {
 
 function twoTrackPlan() {
   const tracks = [
-    testTrack({ id: 'lead', midiProgram: 0, voiceProgram: 0, voiceName: 'Acoustic Grand Piano' }),
-    testTrack({ id: 'bass', midiProgram: 32, voiceProgram: 32, voiceName: 'Acoustic Bass' }),
+    testTrack({
+      id: 'lead',
+      midiProgram: 0,
+      voiceProgram: 0,
+      voiceName: 'Acoustic Grand Piano',
+    }),
+    testTrack({
+      id: 'bass',
+      midiProgram: 32,
+      voiceProgram: 32,
+      voiceName: 'Acoustic Bass',
+    }),
   ];
   const notes = [
     testNote({ trackId: 'lead', tick: 0, midi: 60, noteId: 'l0' }),
@@ -314,8 +390,16 @@ function twoTrackPlan() {
 /** One piano note, for the lit-note and mix assertions. */
 function oneNotePlan(tick: number, durTicks: number) {
   return testPlan({
-    tracks: [testTrack({ id: 'lead', voiceProgram: 0, voiceName: 'Acoustic Grand Piano' })],
-    notes: [testNote({ trackId: 'lead', tick, durTicks, midi: 60, noteId: 'n0' })],
+    tracks: [
+      testTrack({
+        id: 'lead',
+        voiceProgram: 0,
+        voiceName: 'Acoustic Grand Piano',
+      }),
+    ],
+    notes: [
+      testNote({ trackId: 'lead', tick, durTicks, midi: 60, noteId: 'n0' }),
+    ],
   });
 }
 
@@ -324,10 +408,16 @@ function planWithDrums() {
   const drumTrack = 'bass';
   const plan = testPlan({
     ...base,
-    tracks: base.tracks.map((t) =>
+    tracks: base.tracks.map(t =>
       t.id === drumTrack
-        ? { ...t, isPercussion: true, midiProgram: 25, voiceProgram: 25, voiceName: 'TR-808 Kit' }
-        : t,
+        ? {
+            ...t,
+            isPercussion: true,
+            midiProgram: 25,
+            voiceProgram: 25,
+            voiceName: 'TR-808 Kit',
+          }
+        : t
     ),
   });
   return { plan, drumTrack };
@@ -348,8 +438,8 @@ describe('RNSamplePlaybackEngine', () => {
     ctx.engine.setObserver({
       onPositionTick: () => undefined,
       onActiveNotes: () => undefined,
-      onStateChange: (s) => events.push(`state:${s}`),
-      onLoadStateChange: (s) => events.push(`load:${s.status}`),
+      onStateChange: s => events.push(`state:${s}`),
+      onLoadStateChange: s => events.push(`load:${s.status}`),
     });
     await ctx.engine.load(twoTrackPlan());
 
@@ -359,24 +449,32 @@ describe('RNSamplePlaybackEngine', () => {
     // proves nothing: play() awaits before it could set any state, so the
     // check passes wherever setState sits.
     expect(events).toContain('state:playing');
-    expect(events.indexOf('state:playing')).toBeGreaterThan(events.lastIndexOf('load:loading'));
-    expect(events.indexOf('state:playing')).toBeGreaterThan(events.indexOf('load:ready'));
+    expect(events.indexOf('state:playing')).toBeGreaterThan(
+      events.lastIndexOf('load:loading')
+    );
+    expect(events.indexOf('state:playing')).toBeGreaterThan(
+      events.indexOf('load:ready')
+    );
   });
 
-  it('schedules the score\'s notes as soon as playback starts', async () => {
+  it("schedules the score's notes as soon as playback starts", async () => {
     await ctx.engine.load(twoTrackPlan());
     await ctx.engine.play();
 
     expect(ctx.graph.sources.length).toBeGreaterThan(0);
     // Everything is scheduled ahead of the clock, never behind it.
-    expect(ctx.graph.sources.every((s) => s.startAt >= ctx.graph.currentTime)).toBe(true);
-    expect(ctx.graph.sources.every((s) => s.stopAt !== null && s.stopAt > s.startAt)).toBe(true);
+    expect(
+      ctx.graph.sources.every(s => s.startAt >= ctx.graph.currentTime)
+    ).toBe(true);
+    expect(
+      ctx.graph.sources.every(s => s.stopAt !== null && s.stopAt > s.startAt)
+    ).toBe(true);
   });
 
   it('keeps decoded packs across plays rather than refetching them', async () => {
     const fetched: string[] = [];
     const local = makeEngine({
-      fetchPack: async (url) => {
+      fetchPack: async url => {
         fetched.push(url);
         return packBody(/\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!);
       },
@@ -409,28 +507,34 @@ describe('RNSamplePlaybackEngine', () => {
       onPositionTick: () => undefined,
       onActiveNotes: () => undefined,
       onStateChange: () => undefined,
-      onLoadStateChange: (s) => loads.push(s),
+      onLoadStateChange: s => loads.push(s),
     });
     loads.length = 0;
     await local.engine.play();
 
-    expect(loads.map((l) => l.status)).not.toContain('loading');
+    expect(loads.map(l => l.status)).not.toContain('loading');
   });
 
   it('fetches a pack once when a play and an audition race for it', async () => {
     const fetched: string[] = [];
     const local = makeEngine({
-      fetchPack: async (url) => {
+      fetchPack: async url => {
         fetched.push(url);
-        await new Promise((r) => setTimeout(r, 5)); // long enough to overlap
+        await new Promise(r => setTimeout(r, 5)); // long enough to overlap
         return packBody(/\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!);
       },
     });
     await local.engine.load(twoTrackPlan());
 
-    local.engine.noteOn(60, { program: 0, name: 'Acoustic Grand Piano', isPercussion: false });
+    local.engine.noteOn(60, {
+      program: 0,
+      name: 'Acoustic Grand Piano',
+      isPercussion: false,
+    });
     await local.engine.play();
-    await vi.waitFor(() => expect(local.graph.sources.length).toBeGreaterThan(0));
+    await vi.waitFor(() =>
+      expect(local.graph.sources.length).toBeGreaterThan(0)
+    );
 
     // Both want the piano pack. Without the in-flight memo each starts its own
     // download of the same 2.7MB.
@@ -472,7 +576,7 @@ describe('RNSamplePlaybackEngine', () => {
     await ctx.engine.play();
     ctx.step();
 
-    expect(activeNotes.some((ids) => ids.length > 0)).toBe(true);
+    expect(activeNotes.some(ids => ids.length > 0)).toBe(true);
   });
 
   it('coalesces active-note updates within one pump pass', async () => {
@@ -503,7 +607,7 @@ describe('RNSamplePlaybackEngine', () => {
 
     ctx.graph.currentTime = 0.15;
     ctx.step();
-    expect((activeNotes.at(-1) ?? []).map((n) => n.noteId)).toEqual(['n0']);
+    expect((activeNotes.at(-1) ?? []).map(n => n.noteId)).toEqual(['n0']);
   });
 
   it('lights a note without waiting for a position report', async () => {
@@ -522,7 +626,7 @@ describe('RNSamplePlaybackEngine', () => {
     ctx.stepSounding();
 
     expect(activeNotes.length).toBeGreaterThan(before);
-    expect((activeNotes.at(-1) ?? []).map((n) => n.noteId)).toEqual(['n0']);
+    expect((activeNotes.at(-1) ?? []).map(n => n.noteId)).toEqual(['n0']);
   });
 
   it('stops lighting a note at its written end, not after its release tail', async () => {
@@ -531,7 +635,7 @@ describe('RNSamplePlaybackEngine', () => {
     await ctx.engine.load(oneNotePlan(0, 480)); // half a second at 960 ticks a second
     await ctx.engine.play();
     ctx.step();
-    expect((activeNotes.at(-1) ?? []).map((n) => n.noteId)).toEqual(['n0']);
+    expect((activeNotes.at(-1) ?? []).map(n => n.noteId)).toEqual(['n0']);
 
     // Still audible — the piano's measured release runs on past here — but the
     // written note is over and the notation should not still be coloured.
@@ -558,12 +662,18 @@ describe('RNSamplePlaybackEngine', () => {
     ctx.step();
 
     expect(ctx.graph.levels).toContain(0.5);
-    expect(ctx.graph.panners.map((p) => p.pan.value)).toContain(-1);
+    expect(ctx.graph.panners.map(p => p.pan.value)).toContain(-1);
   });
 
   it('moves a fader during playback without reloading the score', async () => {
     const plan = testPlan({
-      tracks: [testTrack({ id: 'lead', voiceProgram: 0, voiceName: 'Acoustic Grand Piano' })],
+      tracks: [
+        testTrack({
+          id: 'lead',
+          voiceProgram: 0,
+          voiceName: 'Acoustic Grand Piano',
+        }),
+      ],
       notes: [testNote({ trackId: 'lead', tick: 0, midi: 60, noteId: 'n0' })],
     });
     await ctx.engine.load(plan);
@@ -572,15 +682,29 @@ describe('RNSamplePlaybackEngine', () => {
 
     ctx.engine.applyMix([{ ...plan.tracks[0]!, volume: 0.25, pan: 1 }]);
     expect(ctx.graph.levels).toContain(0.25);
-    expect(ctx.graph.panners.map((p) => p.pan.value)).toContain(1);
+    expect(ctx.graph.panners.map(p => p.pan.value)).toContain(1);
   });
 
   it('silences a note already sounding when its track is muted', async () => {
     // Mute used to gate scheduling only, so a note that had already started
     // played on to its end after the user muted it.
     const plan = testPlan({
-      tracks: [testTrack({ id: 'lead', voiceProgram: 0, voiceName: 'Acoustic Grand Piano' })],
-      notes: [testNote({ trackId: 'lead', tick: 0, durTicks: 1920, midi: 60, noteId: 'n0' })],
+      tracks: [
+        testTrack({
+          id: 'lead',
+          voiceProgram: 0,
+          voiceName: 'Acoustic Grand Piano',
+        }),
+      ],
+      notes: [
+        testNote({
+          trackId: 'lead',
+          tick: 0,
+          durTicks: 1920,
+          midi: 60,
+          noteId: 'n0',
+        }),
+      ],
     });
     await ctx.engine.load(plan);
     await ctx.engine.play();
@@ -600,7 +724,7 @@ describe('RNSamplePlaybackEngine', () => {
     ctx.graph.currentTime = 1;
     ctx.step();
 
-    expect(ticks.some((t) => t > 0)).toBe(true);
+    expect(ticks.some(t => t > 0)).toBe(true);
   });
 
   it('stops the pump and silences everything on pause', async () => {
@@ -652,7 +776,11 @@ describe('RNSamplePlaybackEngine', () => {
     states.length = 0;
     ticks.length = 0;
 
-    ctx.engine.noteOn(60, { program: 0, name: 'Acoustic Grand Piano', isPercussion: false });
+    ctx.engine.noteOn(60, {
+      program: 0,
+      name: 'Acoustic Grand Piano',
+      isPercussion: false,
+    });
     await vi.waitFor(() => expect(ctx.graph.sources.length).toBeGreaterThan(0));
 
     expect(states).toEqual([]);
@@ -660,12 +788,16 @@ describe('RNSamplePlaybackEngine', () => {
   });
 
   it('surfaces a failed pack fetch as a failed load state', async () => {
-    const failing = makeEngine({ fetchPack: async () => '<!doctype html><title>404</title>' });
+    const failing = makeEngine({
+      fetchPack: async () => '<!doctype html><title>404</title>',
+    });
     const { observer, loads } = recordingObserver();
     failing.engine.setObserver(observer);
     await failing.engine.load(twoTrackPlan());
 
-    await expect(failing.engine.play()).rejects.toThrow(/not a MIDI\.js sample pack/i);
+    await expect(failing.engine.play()).rejects.toThrow(
+      /not a MIDI\.js sample pack/i
+    );
     expect(loads[loads.length - 1]).toMatchObject({ status: 'failed' });
   });
 
@@ -710,9 +842,9 @@ describe('RNSamplePlaybackEngine expression', () => {
     await local.engine.play();
     local.step();
 
-    const filtered = local.graph.sources.filter((s) => s.cutoff !== null);
+    const filtered = local.graph.sources.filter(s => s.cutoff !== null);
     expect(filtered.length).toBeGreaterThan(0);
-    expect(filtered.every((s) => s.cutoff! > 0 && s.cutoff! < 16000)).toBe(true);
+    expect(filtered.every(s => s.cutoff! > 0 && s.cutoff! < 16000)).toBe(true);
   });
 
   it('holds a note longer than the 3.13s recording by looping its sustain', async () => {
@@ -725,12 +857,25 @@ describe('RNSamplePlaybackEngine expression', () => {
     const base = twoTrackPlan();
     const plan = testPlan({
       ...base,
-      tracks: base.tracks.map((t) =>
+      tracks: base.tracks.map(t =>
         t.id === 'bass'
-          ? { ...t, midiProgram: 48, voiceProgram: 48, voiceName: 'String Ensemble 1' }
-          : t,
+          ? {
+              ...t,
+              midiProgram: 48,
+              voiceProgram: 48,
+              voiceName: 'String Ensemble 1',
+            }
+          : t
       ),
-      notes: [testNote({ trackId: 'bass', tick: 0, durTicks: 480 * 8, midi: 48, noteId: 'long' })],
+      notes: [
+        testNote({
+          trackId: 'bass',
+          tick: 0,
+          durTicks: 480 * 8,
+          midi: 48,
+          noteId: 'long',
+        }),
+      ],
       tempo: SLOW_TEMPO,
     });
     await local.engine.load(plan);
@@ -740,7 +885,7 @@ describe('RNSamplePlaybackEngine expression', () => {
       local.step();
     }
 
-    expect(local.graph.sources.some((s) => s.looped)).toBe(true);
+    expect(local.graph.sources.some(s => s.looped)).toBe(true);
   });
 
   it('never loops a drum, whose decay is already the recording', async () => {
@@ -753,7 +898,9 @@ describe('RNSamplePlaybackEngine expression', () => {
       local.step();
     }
 
-    expect(local.graph.sources.every((s) => !s.looped || s.cutoff === null)).toBe(true);
+    expect(local.graph.sources.every(s => !s.looped || s.cutoff === null)).toBe(
+      true
+    );
   });
 });
 
@@ -761,7 +908,7 @@ describe('RNSamplePlaybackEngine percussion', () => {
   it('loads the drum kit pack for a percussion track, not an instrument pack', async () => {
     const fetched: string[] = [];
     const local = makeEngine({
-      fetchPack: async (url) => {
+      fetchPack: async url => {
         fetched.push(url);
         const name = /\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!;
         return name.startsWith('percussion_') ? kitBody(name) : packBody(name);
@@ -773,15 +920,15 @@ describe('RNSamplePlaybackEngine percussion', () => {
 
     // Program 25 is the TR-808 kit AND, on a pitched track, a Violin. Reading
     // it as an instrument is the bug this asserts against.
-    expect(fetched.some((u) => u.includes('percussion_25-mp3.js'))).toBe(true);
-    expect(fetched.some((u) => u.includes('violin'))).toBe(false);
+    expect(fetched.some(u => u.includes('percussion_25-mp3.js'))).toBe(true);
+    expect(fetched.some(u => u.includes('violin'))).toBe(false);
   });
 
   it('serves drum kits from the app-hosted base, not the melodic CDN', async () => {
     const fetched: string[] = [];
     const local = makeEngine({
       percussionBase: 'https://app.example.com/audio/percussion/',
-      fetchPack: async (url) => {
+      fetchPack: async url => {
         fetched.push(url);
         const name = /\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!;
         return name.startsWith('percussion_') ? kitBody(name) : packBody(name);
@@ -791,8 +938,10 @@ describe('RNSamplePlaybackEngine percussion', () => {
     await local.engine.load(plan);
     await local.engine.play();
 
-    const kitUrl = fetched.find((u) => u.includes('percussion_25'))!;
-    expect(kitUrl).toBe('https://app.example.com/audio/percussion/percussion_25-mp3.js');
+    const kitUrl = fetched.find(u => u.includes('percussion_25'))!;
+    expect(kitUrl).toBe(
+      'https://app.example.com/audio/percussion/percussion_25-mp3.js'
+    );
   });
 
   it('sounds drums, and leaves an undefined slot silent rather than bending to it', async () => {
@@ -814,13 +963,13 @@ describe('RNSamplePlaybackEngine percussion', () => {
     // A drum note number names an *instrument*, not a pitch, so the nearest
     // slot is not a worse version of the right answer — it is a different
     // drum. Every source that started must be unbent.
-    expect(local.graph.sources.every((s) => s.detune === 0)).toBe(true);
+    expect(local.graph.sources.every(s => s.detune === 0)).toBe(true);
   });
 
   it('auditions a drum from the kit rather than the GM instrument table', async () => {
     const fetched: string[] = [];
     const local = makeEngine({
-      fetchPack: async (url) => {
+      fetchPack: async url => {
         fetched.push(url);
         const name = /\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!;
         return name.startsWith('percussion_') ? kitBody(name) : packBody(name);
@@ -828,10 +977,16 @@ describe('RNSamplePlaybackEngine percussion', () => {
     });
     await local.engine.load(twoTrackPlan());
 
-    local.engine.noteOn(38, { program: 25, name: 'TR-808 Kit', isPercussion: true }); // snare
-    await vi.waitFor(() => expect(local.graph.sources.length).toBeGreaterThan(0));
+    local.engine.noteOn(38, {
+      program: 25,
+      name: 'TR-808 Kit',
+      isPercussion: true,
+    }); // snare
+    await vi.waitFor(() =>
+      expect(local.graph.sources.length).toBeGreaterThan(0)
+    );
 
-    expect(fetched.some((u) => u.includes('percussion_25-mp3.js'))).toBe(true);
+    expect(fetched.some(u => u.includes('percussion_25-mp3.js'))).toBe(true);
     expect(local.graph.sources[0]!.detune).toBe(0);
   });
 
@@ -854,12 +1009,16 @@ describe('RNSamplePlaybackEngine percussion', () => {
 describe('base64ToBytes', () => {
   it('decodes without atob or Buffer, neither of which Hermes reliably has', () => {
     // "Hello" -> SGVsbG8=
-    expect(Array.from(new Uint8Array(base64ToBytes('SGVsbG8=')))).toEqual([72, 101, 108, 108, 111]);
+    expect(Array.from(new Uint8Array(base64ToBytes('SGVsbG8=')))).toEqual([
+      72, 101, 108, 108, 111,
+    ]);
   });
 
   it('matches Buffer across a byte range, so mp3 frames survive intact', () => {
     const bytes = Uint8Array.from({ length: 256 }, (_, i) => i);
     const base64 = Buffer.from(bytes).toString('base64');
-    expect(Array.from(new Uint8Array(base64ToBytes(base64)))).toEqual(Array.from(bytes));
+    expect(Array.from(new Uint8Array(base64ToBytes(base64)))).toEqual(
+      Array.from(bytes)
+    );
   });
 });

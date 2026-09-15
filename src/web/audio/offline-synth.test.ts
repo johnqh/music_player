@@ -5,7 +5,10 @@ import type { SynthesizerLike } from './synth-types.js';
 /** A synth that records its init and hands back a known soundfont id. */
 function stubSynth() {
   const init = vi.fn();
-  const synth = { init, loadSFont: vi.fn(async () => 7) } as unknown as SynthesizerLike;
+  const synth = {
+    init,
+    loadSFont: vi.fn(async () => 7),
+  } as unknown as SynthesizerLike;
   return { synth, init };
 }
 
@@ -24,7 +27,10 @@ describe('getOfflineSynth', () => {
       createSynth: () => synth,
     });
     expect(loaded.sfontId).toBe(7);
-    expect(init).toHaveBeenCalledWith(44100, { midiChannelCount: 256, polyphony: 2048 });
+    expect(init).toHaveBeenCalledWith(44100, {
+      midiChannelCount: 256,
+      polyphony: 2048,
+    });
   });
 
   it('builds the synth once and reuses it for the same font and rate', async () => {

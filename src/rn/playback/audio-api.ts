@@ -95,7 +95,10 @@ export type RNAudioContext = {
 /** What `rn/playback/sample-engine.ts` needs from the module, and nothing else. */
 export type AudioApi = {
   AudioContext: new () => RNAudioContext;
-  decodeAudioData(input: ArrayBuffer, sampleRate?: number): Promise<RNAudioBuffer>;
+  decodeAudioData(
+    input: ArrayBuffer,
+    sampleRate?: number
+  ): Promise<RNAudioBuffer>;
   /** Absent before 0.13; `createRNSoundfontRenderer` says so rather than failing obscurely. */
   OfflineAudioContext?: new (options: {
     numberOfChannels: number;
@@ -106,15 +109,17 @@ export type AudioApi = {
 
 /** Loads the real module. Lazy, so importing this package without it present does not throw. */
 export async function loadAudioApi(): Promise<AudioApi> {
-  const mod = (await import('react-native-audio-api')) as unknown as Partial<AudioApi> & {
-    default?: Partial<AudioApi>;
-  };
+  const mod =
+    (await import('react-native-audio-api')) as unknown as Partial<AudioApi> & {
+      default?: Partial<AudioApi>;
+    };
   const AudioContext = mod.AudioContext ?? mod.default?.AudioContext;
   const decodeAudioData = mod.decodeAudioData ?? mod.default?.decodeAudioData;
-  const OfflineAudioContext = mod.OfflineAudioContext ?? mod.default?.OfflineAudioContext;
+  const OfflineAudioContext =
+    mod.OfflineAudioContext ?? mod.default?.OfflineAudioContext;
   if (!AudioContext || !decodeAudioData) {
     throw new Error(
-      'react-native-audio-api is missing AudioContext or decodeAudioData; playback needs >=0.13.',
+      'react-native-audio-api is missing AudioContext or decodeAudioData; playback needs >=0.13.'
     );
   }
   return { AudioContext, decodeAudioData, OfflineAudioContext } as AudioApi;

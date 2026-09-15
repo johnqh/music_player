@@ -57,7 +57,7 @@ export function applySustainLoop(
   source: RNBufferSource,
   buffer: RNAudioBuffer,
   neededSeconds: number,
-  sampleMidi?: number,
+  sampleMidi?: number
 ): boolean {
   const duration = buffer.duration;
   if (neededSeconds <= duration) return false;
@@ -76,7 +76,8 @@ export function applySustainLoop(
 
   const loopStart = startSample / rate;
   const loopEnd = endSample / rate;
-  if (!(loopEnd > loopStart) || loopEnd - loopStart < MIN_LOOP_SECONDS) return false;
+  if (!(loopEnd > loopStart) || loopEnd - loopStart < MIN_LOOP_SECONDS)
+    return false;
 
   source.loop = true;
   source.loopStart = loopStart;
@@ -91,7 +92,11 @@ export function applySustainLoop(
  * a future non-melodic use) still gets a working loop, just one whose seam is
  * only zero-crossing-aligned.
  */
-function wholePeriods(targetSamples: number, sampleMidi: number | undefined, sampleRate: number): number {
+function wholePeriods(
+  targetSamples: number,
+  sampleMidi: number | undefined,
+  sampleRate: number
+): number {
   if (sampleMidi === undefined) return Math.round(targetSamples);
   const period = sampleRate / midiToHertz(sampleMidi);
   const periods = Math.max(1, Math.round(targetSamples / period));
@@ -104,7 +109,11 @@ function wholePeriods(targetSamples: number, sampleMidi: number | undefined, sam
  * Searched within a few milliseconds either way — far enough to find a crossing
  * at any musical pitch, near enough not to move the loop bound audibly.
  */
-function nearestRisingZero(channel: Float32Array, at: number, sampleRate: number): number {
+function nearestRisingZero(
+  channel: Float32Array,
+  at: number,
+  sampleRate: number
+): number {
   const reach = Math.floor(0.005 * sampleRate);
   const lo = Math.max(1, at - reach);
   const hi = Math.min(channel.length - 1, at + reach);

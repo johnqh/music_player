@@ -8,7 +8,8 @@ const RATE = 44100;
 function buffer(seconds = 3.13, hz = 220): RNAudioBuffer {
   const length = Math.round(seconds * RATE);
   const data = new Float32Array(length);
-  for (let i = 0; i < length; i += 1) data[i] = Math.sin((2 * Math.PI * hz * i) / RATE);
+  for (let i = 0; i < length; i += 1)
+    data[i] = Math.sin((2 * Math.PI * hz * i) / RATE);
   return {
     length,
     numberOfChannels: 1,
@@ -18,7 +19,11 @@ function buffer(seconds = 3.13, hz = 220): RNAudioBuffer {
   };
 }
 
-function source(): RNBufferSource & { loop: boolean; loopStart: number; loopEnd: number } {
+function source(): RNBufferSource & {
+  loop: boolean;
+  loopStart: number;
+  loopEnd: number;
+} {
   return {
     buffer: null,
     loop: false,
@@ -49,7 +54,7 @@ describe('applySustainLoop', () => {
     expect(s.loopEnd).toBeGreaterThan(s.loopStart);
   });
 
-  it('keeps the loop clear of the recording\'s own release tail', () => {
+  it("keeps the loop clear of the recording's own release tail", () => {
     // The last third of a second is the rendered note dying away. Looping
     // through it would pump the level once a second.
     const s = source();
@@ -62,7 +67,6 @@ describe('applySustainLoop', () => {
     applySustainLoop(s, buffer(), 6);
     expect(s.loopEnd - s.loopStart).toBeGreaterThan(0.25);
   });
-
 
   it('spans a whole number of periods of the sampled note', () => {
     // The seam's real problem is phase, not sign. An arbitrary window ends

@@ -88,6 +88,12 @@ export interface PlaybackEngine {
   applyMix(tracks: readonly PlaybackTrack[]): void;
   /** Toggles the metronome click. */
   setMetronome(enabled: boolean): void;
+  /**
+   * How long a change of lit notes takes to reach the screen, in seconds, so
+   * they can be published that far ahead and land with the sound. Measured by
+   * the host's score canvas; see `soundingRenderDelayOrDefault`.
+   */
+  setSoundingRenderDelay(seconds: number): void;
   /** Sets overall output level, 0-1 linear gain. */
   setMasterVolume(volume: number): void;
   /**
@@ -110,4 +116,3 @@ export interface PlaybackEngine {
   setObserver(observer: PlaybackObserver | null): void;
   dispose(): void;
 }
-

@@ -14,6 +14,8 @@ import {
 } from './playback/soundfont-loader.js';
 import { createSoundfontRenderer } from './audio/soundfont-render.js';
 import { MusicPlayer } from '../player.js';
+import { renderScoreWith } from '../shared/render-score.js';
+import type { DecodedAudio, Score } from '@sudobility/music_types';
 
 export * from '../types.js';
 export * from '../singleton.js';
@@ -91,4 +93,21 @@ export function renderSamples(soundfont: SoundfontAssets) {
     loadFont: async url =>
       loadSoundfont(url, { cache: await openSoundfontCache() }),
   });
+}
+
+/**
+ * A score rendered to PCM through the soundfont playback uses — the whole of an
+ * audio export short of encoding it.
+ *
+ * `renderEvents` + `renderSamples`, joined here so the two apps cannot join
+ * them differently (see `shared/render-score.ts`). Pass the score the export is
+ * *of*: scope (hidden tracks) is resolved before this, mute and solo within it.
+ * Hand the result to `io.saveAudio`; this package does not touch files.
+ * Rejects when the synth or the font cannot be loaded.
+ */
+export function renderScoreAudio(
+  score: Score,
+  soundfont: SoundfontAssets
+): Promise<DecodedAudio> {
+  return renderScoreWith(score, renderSamples(soundfont));
 }

@@ -11,7 +11,9 @@ const SAMPLE_RATE = 44100;
  * A synth that records what it was told and writes a constant into the buffers,
  * so the render loop's own arithmetic can be checked.
  */
-function stubSynth(fill: { left: number; right: number } = { left: 1, right: 1 }) {
+function stubSynth(
+  fill: { left: number; right: number } = { left: 1, right: 1 }
+) {
   const calls: Record<string, unknown[][]> = {};
   const record =
     (name: string) =>
@@ -38,7 +40,11 @@ function stubSynth(fill: { left: number; right: number } = { left: 1, right: 1 }
 }
 
 function rendererFor(synth: SynthesizerLike, onAcquire?: () => void) {
-  const loaded: LoadedOfflineSynth = { synth, sfontId: 1, sampleRate: SAMPLE_RATE };
+  const loaded: LoadedOfflineSynth = {
+    synth,
+    sfontId: 1,
+    sampleRate: SAMPLE_RATE,
+  };
   return createSoundfontRenderer({
     fluidsynthModuleUrl: 'f.js',
     fontUrl: 'font.sf3',
@@ -64,7 +70,15 @@ const track = (over: Partial<RenderPlan['tracks'][number]> = {}) => ({
 
 const plan = (over: Partial<RenderPlan> = {}): RenderPlan => ({
   tracks: [track()],
-  events: [{ trackId: 't1', midi: 60, startSec: 0.5, durationSec: 0.25, velocity: 0.8 }],
+  events: [
+    {
+      trackId: 't1',
+      midi: 60,
+      startSec: 0.5,
+      durationSec: 0.25,
+      velocity: 0.8,
+    },
+  ],
   durationSec: 1,
   ...over,
 });
@@ -89,7 +103,7 @@ describe('createSoundfontRenderer', () => {
     // nine-track arrangement plays back at a third of what its channels sum
     // to. The renderer summed them raw, which the encoders then hard-clamp —
     // an export that clipped through most of a piece playback handled fine.
-    const tracks = ['t1', 't2', 't3', 't4'].map((id) => track({ id }));
+    const tracks = ['t1', 't2', 't3', 't4'].map(id => track({ id }));
     const audio = await rendererFor(stubSynth())(plan({ tracks, events: [] }));
     expect(audio.samples[0]).toBeCloseTo(0.5, 6); // 1.0 summed, times 1/sqrt(4)
   });
@@ -101,7 +115,9 @@ describe('createSoundfontRenderer', () => {
     const audio = await rendererFor(stubSynth({ left: 1, right: 1 }))(plan());
     let peak = 0;
     for (const sample of audio.samples) peak = Math.max(peak, Math.abs(sample));
-    expect(peak).toBeLessThanOrEqual(10 ** (LIMITER_CEILING_DB / 20) * (1 + 1e-6));
+    expect(peak).toBeLessThanOrEqual(
+      10 ** (LIMITER_CEILING_DB / 20) * (1 + 1e-6)
+    );
   });
 
   it('selects the drum kit, never a melodic program, on channel 9', async () => {
@@ -111,7 +127,10 @@ describe('createSoundfontRenderer', () => {
     // while selecting from the melodic bank leaves it playing a piano for good.
     const synth = stubSynth();
     await rendererFor(synth)(
-      plan({ tracks: [track({ isPercussion: true, midiProgram: 0 })], events: [] }),
+      plan({
+        tracks: [track({ isPercussion: true, midiProgram: 0 })],
+        events: [],
+      })
     );
     expect(synth.calls.midiSetChannelType).toBeUndefined();
     expect(synth.calls.midiProgramSelect).toEqual([[9, 1, 128, 0]]);
@@ -122,7 +141,10 @@ describe('createSoundfontRenderer', () => {
     // so a track's program is its kit — 8 is the Room kit.
     const synth = stubSynth();
     await rendererFor(synth)(
-      plan({ tracks: [track({ isPercussion: true, midiProgram: 8 })], events: [] }),
+      plan({
+        tracks: [track({ isPercussion: true, midiProgram: 8 })],
+        events: [],
+      })
     );
     expect(synth.calls.midiProgramSelect).toEqual([
       [9, 1, 128, 0],
@@ -137,9 +159,12 @@ describe('createSoundfontRenderer', () => {
     const synth = stubSynth();
     await rendererFor(synth)(
       plan({
-        tracks: [track({ id: 'd1', isPercussion: true }), track({ id: 'd2', isPercussion: true })],
+        tracks: [
+          track({ id: 'd1', isPercussion: true }),
+          track({ id: 'd2', isPercussion: true }),
+        ],
         events: [],
-      }),
+      })
     );
     const switched = synth.calls.midiSetChannelType?.[0];
     expect(switched).toBeDefined();
@@ -155,7 +180,9 @@ describe('createSoundfontRenderer', () => {
 
   it('sends volume and pan as CC7 and CC10', async () => {
     const synth = stubSynth();
-    await rendererFor(synth)(plan({ tracks: [track({ volume: 0.5, pan: -1 })], events: [] }));
+    await rendererFor(synth)(
+      plan({ tracks: [track({ volume: 0.5, pan: -1 })], events: [] })
+    );
     const controls = synth.calls.midiControl ?? [];
     expect(controls).toContainEqual([0, 7, 64]);
     expect(controls).toContainEqual([0, 10, 0]);
@@ -168,7 +195,7 @@ describe('createSoundfontRenderer', () => {
     let framesRenderedBeforeNoteOn = 0;
     let blocks = 0;
     const original = synth.render;
-    synth.render = (out) => {
+    synth.render = out => {
       blocks += 1;
       original(out);
     };
@@ -201,27 +228,30 @@ describe('createSoundfontRenderer', () => {
     const synth = stubSynth();
     const programOn = new Map<number, number>();
     const sounded: number[] = [];
-    synth.midiProgramSelect = (channel, _sfont, _bank, preset) => programOn.set(channel, preset);
-    synth.midiNoteOn = (channel) => sounded.push(programOn.get(channel) ?? -1);
+    synth.midiProgramSelect = (channel, _sfont, _bank, preset) =>
+      programOn.set(channel, preset);
+    synth.midiNoteOn = channel => sounded.push(programOn.get(channel) ?? -1);
 
     const tracks = Array.from({ length: 17 }, (_, i) =>
-      track({ id: `t${i}`, midiProgram: i, isPercussion: false }),
+      track({ id: `t${i}`, midiProgram: i, isPercussion: false })
     );
     await rendererFor(synth)(
       plan({
         tracks,
-        events: tracks.map((t) => ({
+        events: tracks.map(t => ({
           trackId: t.id,
           midi: 60,
           startSec: 0,
           durationSec: 0.25,
           velocity: 0.8,
         })),
-      }),
+      })
     );
 
     // Every track sounded, each with its own instrument.
-    expect(sounded.slice().sort((a, b) => a - b)).toEqual(tracks.map((t) => t.midiProgram));
+    expect(sounded.slice().sort((a, b) => a - b)).toEqual(
+      tracks.map(t => t.midiProgram)
+    );
   });
 
   it('reuses the synth across renders rather than reloading the soundfont', async () => {

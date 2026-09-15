@@ -58,14 +58,48 @@ export const RENDER_DELAY_SECONDS = 0.016;
  * than the other is worse than being consistent, and 8ms at double speed is
  * below what the eye resolves against a moving caret.
  */
-export function visualOffsetSeconds(outputLatency?: number): number {
+export function visualOffsetSeconds(
+  outputLatency?: number,
+  /**
+   * Publish-to-paint for the visual this position is for. Defaults to one
+   * frame; the lit notes use what the host measured (see
+   * `soundingRenderDelayOrDefault`).
+   */
+  renderDelaySeconds: number = RENDER_DELAY_SECONDS
+): number {
   const latency =
     typeof outputLatency === 'number' &&
     Number.isFinite(outputLatency) &&
     outputLatency >= 0
       ? outputLatency
       : 0;
-  return RENDER_DELAY_SECONDS - latency;
+  return renderDelaySeconds - latency;
+}
+
+/**
+ * The longest publish-to-paint a host may claim.
+ *
+ * A measurement is only ever a few frames; anything past this is a stall being
+ * mistaken for the pipeline, and leading the lights by it would light notes
+ * that are nowhere near sounding.
+ */
+export const MAX_SOUNDING_RENDER_DELAY_SECONDS = 0.25;
+
+/**
+ * How far ahead the lit notes are published: what the host measured drawing
+ * them takes, or one frame when it has said nothing believable.
+ *
+ * The lit notes, not the caret, because the two are drawn by different
+ * pipelines. On the web both are cheap. In the native app a change of lit
+ * notes re-records the notation as a Skia picture and waits a React commit —
+ * measured at 45–70ms on a dense score — while the caret is moved by a native
+ * view with no JavaScript in the frame. One shared figure would put one of them
+ * out of step with the sound.
+ */
+export function soundingRenderDelayOrDefault(seconds: number): number {
+  return Number.isFinite(seconds) && seconds >= 0
+    ? Math.min(seconds, MAX_SOUNDING_RENDER_DELAY_SECONDS)
+    : RENDER_DELAY_SECONDS;
 }
 
 /**

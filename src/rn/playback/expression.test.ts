@@ -7,7 +7,7 @@ const STRINGS = 48;
 const MARIMBA = 12;
 
 describe('velocityGain', () => {
-  it('is SF2\'s concave default modulator, which reduces to (v/127)^2', () => {
+  it("is SF2's concave default modulator, which reduces to (v/127)^2", () => {
     expect(velocityGain(127)).toBe(1);
     expect(velocityGain(64)).toBeCloseTo((64 / 127) ** 2, 6);
     expect(velocityGain(32)).toBeCloseTo(0.0635, 4);

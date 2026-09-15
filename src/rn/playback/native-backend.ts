@@ -50,10 +50,34 @@ const CLICK_BEAT_MIDI = 77;
 const CLICK_VELOCITY = 100;
 const CLICK_SECONDS = 0.05;
 
+/**
+ * How long the audio clock is extrapolated before it is read again, in seconds.
+ *
+ * Every read of the native clock is a synchronous call across the bridge, and
+ * the engine reads it constantly — the pump, the metronome and the lit-keys
+ * ticker at sixty times a second each ask. Measured on the Mac, those crossings
+ * (with `outputLatency`, which asked the driver's settings every time) held the
+ * JavaScript thread at a full core during playback, starving everything the
+ * reader can see. Between reads the clock advances at wall-clock speed, which
+ * over a fraction of a second is the same thing to well under a millisecond.
+ */
+const CLOCK_RESYNC_SECONDS = 0.25;
+
+function performanceSeconds(): number {
+  return performance.now() / 1000;
+}
+
 export class NativeSynthBackend implements SynthBackend {
   private readonly api: NativeSynthApi;
   private readonly soundfontUri: string;
+  private readonly wallClock: () => number;
   private synth: NativeSynth | null = null;
+  /** The last native clock reading and the wall-clock second it was taken at. */
+  private clockAnchor: { audio: number; wall: number } | null = null;
+  /** The last value `now` returned, so a re-anchor never steps backwards. */
+  private lastNow = 0;
+  /** Read once per open driver; see `outputLatency`. */
+  private latency: number | undefined;
   /**
    * The instance the metronome owns, and nothing else does.
    *
@@ -64,9 +88,15 @@ export class NativeSynthBackend implements SynthBackend {
    */
   private clickInstance = 0;
 
-  constructor(options: { api: NativeSynthApi; soundfontUri: string }) {
+  constructor(options: {
+    api: NativeSynthApi;
+    soundfontUri: string;
+    /** Wall-clock seconds; injectable so the extrapolation can be tested. */
+    wallClock?: () => number;
+  }) {
     this.api = options.api;
     this.soundfontUri = options.soundfontUri;
+    this.wallClock = options.wallClock ?? performanceSeconds;
   }
 
   async prepare({
@@ -88,6 +118,7 @@ export class NativeSynthBackend implements SynthBackend {
       onProgress: fraction => onProgress({ status: 'loading', fraction }),
     });
     this.adoptClickInstance(instanceCount);
+    this.resetClock();
     // No deferred case: nothing here waits on a user gesture the way a
     // browser's suspended AudioContext does.
     return 'ready';
@@ -105,11 +136,39 @@ export class NativeSynthBackend implements SynthBackend {
   }
 
   now(): number {
-    return this.synth?.currentTime() ?? 0;
+    const synth = this.synth;
+    if (!synth) return 0;
+    const wall = this.wallClock();
+    const anchor = this.clockAnchor;
+    if (anchor && wall - anchor.wall < CLOCK_RESYNC_SECONDS) {
+      return this.monotonic(anchor.audio + (wall - anchor.wall));
+    }
+    const audio = synth.currentTime();
+    this.clockAnchor = { audio, wall };
+    return this.monotonic(audio);
   }
 
+  /**
+   * The native clock moves in whole render blocks, so a fresh reading can land
+   * a few milliseconds behind where the extrapolation had already got to. Time
+   * going backwards is a stutter to everything scheduled against it.
+   */
+  private monotonic(seconds: number): number {
+    this.lastNow = Math.max(this.lastNow, seconds);
+    return this.lastNow;
+  }
+
+  private resetClock(): void {
+    this.clockAnchor = null;
+    this.lastNow = 0;
+    this.latency = undefined;
+  }
+
+  /** Fixed for as long as the driver is open, so it is asked for once. */
   outputLatency(): number | undefined {
-    return this.synth?.outputLatency();
+    if (!this.synth) return undefined;
+    this.latency ??= this.synth.outputLatency();
+    return this.latency;
   }
 
   scheduleClick(atSeconds: number, accent: boolean): ScheduledClick {
@@ -180,6 +239,7 @@ export class NativeSynthBackend implements SynthBackend {
   dispose(): void {
     this.synth?.dispose();
     this.synth = null;
+    this.resetClock();
   }
 
   private require(): NativeSynth {

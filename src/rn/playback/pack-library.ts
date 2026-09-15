@@ -10,7 +10,12 @@
  * - a drum takes its exact slot or nothing, because a note number in a kit
  *   names an instrument rather than a pitch.
  */
-import { exactSample, nearestSample, parseSamplePack, sampleUrlFor } from './sample-pack.js';
+import {
+  exactSample,
+  nearestSample,
+  parseSamplePack,
+  sampleUrlFor,
+} from './sample-pack.js';
 import type { SampleChoice, SamplePack } from './sample-pack.js';
 import type { RNAudioBuffer } from './audio-api.js';
 import { base64ToBytes } from '@sudobility/music_types';
@@ -40,11 +45,12 @@ export class PackLibrary {
 
   /** Where a pack lives. Kits and instruments come from different places. */
   urlFor(name: string): string {
-    if (!name.startsWith('percussion_')) return sampleUrlFor(name, this.deps.packBase);
+    if (!name.startsWith('percussion_'))
+      return sampleUrlFor(name, this.deps.packBase);
     if (!this.deps.percussionBase) {
       throw new Error(
         'Percussion needs `percussionBase`: drum kits are app-hosted, since no CDN publishes ' +
-          'usably-licensed GM percussion. Build them with music_io/scripts/build-percussion-packs.mjs.',
+          'usably-licensed GM percussion. Build them with music_io/scripts/build-percussion-packs.mjs.'
       );
     }
     return sampleUrlFor(name, this.deps.percussionBase);
@@ -62,7 +68,9 @@ export class PackLibrary {
     if (existing) return existing;
 
     const work = (async () => {
-      const pack = parseSamplePack(await this.deps.fetchPack(this.urlFor(name)));
+      const pack = parseSamplePack(
+        await this.deps.fetchPack(this.urlFor(name))
+      );
       const decoded = new Map<number, RNAudioBuffer>();
       for (const [midi, uri] of pack.samples) {
         decoded.set(midi, await this.deps.decodeAudioData(dataUriToBytes(uri)));
@@ -81,7 +89,9 @@ export class PackLibrary {
     const decoded = this.buffers.get(name);
     if (!pack || !decoded) return null;
 
-    const choice = isPercussion ? exactSample(pack, midi) : nearestSample(pack, midi);
+    const choice = isPercussion
+      ? exactSample(pack, midi)
+      : nearestSample(pack, midi);
     if (!choice) return null;
     const buffer = decoded.get(choice.midi);
     return buffer ? { choice, buffer } : null;

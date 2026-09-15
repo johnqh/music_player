@@ -1,3 +1,4 @@
+import { RENDER_DELAY_SECONDS } from '../shared/visual-sync.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { PlaybackLoadState, PlaybackPlan } from '@sudobility/music_types';
 import { WebSynthBackend } from '../web/playback/web-backend.js';
@@ -1050,6 +1051,61 @@ describe('SoundfontPlaybackEngine: sounding notes', () => {
 
     // The laggier the output, the further behind the caret has to sit.
     expect(laggyTick).toBeLessThan(promptTick);
+  });
+
+  it('publishes the lit notes as far ahead as the host says drawing them takes', async () => {
+    /*
+      How long a change of lit notes takes to reach the screen is the host's
+      fact, not a constant: a web canvas repaints in a few milliseconds, the
+      native app records a Skia picture and waits a React commit. Measured by
+      the score canvas and handed here, it moves the lit notes and nothing
+      else — the caret is drawn by a different, faster path.
+    */
+    async function playedWith(delay?: number) {
+      const run = setup();
+      const seen = observed();
+      run.engine.setObserver(seen.observer);
+      if (delay !== undefined) run.engine.setSoundingRenderDelay(delay);
+      await run.engine.initialize();
+      await run.engine.load(run.plan);
+      await run.engine.play();
+      // Just before a note boundary (notes here are half a second long).
+      run.clock.t += 0.4;
+      run.pump.step();
+      return {
+        lit: JSON.stringify(seen.onActiveNotes.mock.calls.at(-1)?.[0] ?? []),
+        tick: seen.onPositionTick.mock.calls.at(-1)?.[0] as number,
+      };
+    }
+
+    const standard = await playedWith();
+    const same = await playedWith(RENDER_DELAY_SECONDS);
+    const far = await playedWith(0.2);
+    // And no further than a few frames, however much a host claims.
+    const capped = await playedWith(30);
+
+    expect(same.lit).toBe(standard.lit);
+    expect(far.lit).not.toBe(standard.lit);
+    expect(far.tick).toBe(standard.tick);
+    expect(capped.lit).toBe((await playedWith(0.25)).lit);
+  });
+
+  it('refuses a sounding delay that cannot be true', async () => {
+    async function litWith(delay: number) {
+      const run = setup();
+      const seen = observed();
+      run.engine.setObserver(seen.observer);
+      run.engine.setSoundingRenderDelay(delay);
+      await run.engine.initialize();
+      await run.engine.load(run.plan);
+      await run.engine.play();
+      run.clock.t += 0.4;
+      run.pump.step();
+      return JSON.stringify(seen.onActiveNotes.mock.calls.at(-1)?.[0] ?? []);
+    }
+    const standard = await litWith(RENDER_DELAY_SECONDS);
+    expect(await litWith(Number.NaN)).toBe(standard);
+    expect(await litWith(-1)).toBe(standard);
   });
 
   it('still seeks to exactly the tick it was asked for', async () => {

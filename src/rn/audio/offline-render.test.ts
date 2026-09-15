@@ -1,14 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import type { RenderPlan } from '@sudobility/music_types';
-import { createRNSoundfontRenderer, packNameForRenderTrack } from './offline-render.js';
+import {
+  createRNSoundfontRenderer,
+  packNameForRenderTrack,
+} from './offline-render.js';
 import type { AudioApi } from '../playback/audio-api.js';
 
-type Scheduled = { detune: number; startAt: number; stopAt: number; gain: number; pan: number; cutoff: number | null; looped: boolean };
+type Scheduled = {
+  detune: number;
+  startAt: number;
+  stopAt: number;
+  gain: number;
+  pan: number;
+  cutoff: number | null;
+  looped: boolean;
+};
 
 /** An offline graph that records what was scheduled and returns a fixed buffer. */
 function fakeOfflineApi() {
   const scheduled: Scheduled[] = [];
-  const created: Array<{ numberOfChannels: number; length: number; sampleRate: number }> = [];
+  const created: Array<{
+    numberOfChannels: number;
+    length: number;
+    sampleRate: number;
+  }> = [];
   let masterGain = 1;
 
   const param = (onSet: (v: number) => void) => {
@@ -45,7 +60,11 @@ function fakeOfflineApi() {
       duration: 1,
       getChannelData: () => new Float32Array(100),
     }),
-    OfflineAudioContext: function (options: { numberOfChannels: number; length: number; sampleRate: number }) {
+    OfflineAudioContext: function (options: {
+      numberOfChannels: number;
+      length: number;
+      sampleRate: number;
+    }) {
       created.push(options);
       let isMaster = true;
       return {
@@ -58,7 +77,7 @@ function fakeOfflineApi() {
           isMaster = false;
           const record = pending[pending.length - 1];
           return {
-            gain: param((v) => {
+            gain: param(v => {
               if (mine) masterGain = v;
               else if (record && record.gain === 0) record.gain = v;
             }),
@@ -67,16 +86,28 @@ function fakeOfflineApi() {
           };
         },
         createBufferSource() {
-          const record: Scheduled = { detune: 0, startAt: -1, stopAt: -1, gain: 0, pan: 0, cutoff: null, looped: false };
+          const record: Scheduled = {
+            detune: 0,
+            startAt: -1,
+            stopAt: -1,
+            gain: 0,
+            pan: 0,
+            cutoff: null,
+            looped: false,
+          };
           pending.push(record);
           return {
             buffer: null,
-            get loop() { return record.looped; },
-            set loop(v: boolean) { record.looped = v; },
+            get loop() {
+              return record.looped;
+            },
+            set loop(v: boolean) {
+              record.looped = v;
+            },
             loopStart: 0,
             loopEnd: 0,
             playbackRate: param(() => undefined),
-            detune: param((v) => {
+            detune: param(v => {
               if (record) record.detune = v;
             }),
             start(when = 0) {
@@ -96,7 +127,9 @@ function fakeOfflineApi() {
           const record = pending[pending.length - 1];
           return {
             type: 'lowpass',
-            frequency: param((v) => { if (record) record.cutoff = v; }),
+            frequency: param(v => {
+              if (record) record.cutoff = v;
+            }),
             Q: param(() => undefined),
             connect: () => undefined,
             disconnect: () => undefined,
@@ -105,7 +138,7 @@ function fakeOfflineApi() {
         createStereoPanner() {
           const record = pending[pending.length - 1];
           return {
-            pan: param((v) => {
+            pan: param(v => {
               if (record) record.pan = v;
             }),
             connect: () => undefined,
@@ -124,11 +157,31 @@ function fakeOfflineApi() {
   };
 
   const pending: Scheduled[] = [];
-  return { api, scheduled, created, get masterGain() { return masterGain; } };
+  return {
+    api,
+    scheduled,
+    created,
+    get masterGain() {
+      return masterGain;
+    },
+  };
 }
 
 function packBody(name: string): string {
-  const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const names = [
+    'C',
+    'C#',
+    'D',
+    'D#',
+    'E',
+    'F',
+    'F#',
+    'G',
+    'G#',
+    'A',
+    'A#',
+    'B',
+  ];
   const entries: string[] = [];
   const isKit = name.startsWith('percussion_');
   const [lo, hi] = isKit ? [35, 81] : [21, 108];
@@ -137,12 +190,16 @@ function packBody(name: string): string {
     // of GM's empty. A kit fixture with every slot filled cannot tell exact
     // selection from nearest selection — both answer, and both answer 0 cents.
     if (isKit && midi === 56) continue;
-    entries.push(`"${names[midi % 12]}${Math.floor(midi / 12) - 1}": "data:audio/mp3;base64,AAAA"`);
+    entries.push(
+      `"${names[midi % 12]}${Math.floor(midi / 12) - 1}": "data:audio/mp3;base64,AAAA"`
+    );
   }
   return `MIDI.Soundfont.${name} = {${entries.join(',')}}`;
 }
 
-function makeRenderer(overrides: { fetchPack?: (url: string) => Promise<string> } = {}) {
+function makeRenderer(
+  overrides: { fetchPack?: (url: string) => Promise<string> } = {}
+) {
   const graph = fakeOfflineApi();
   const fetched: string[] = [];
   const renderer = createRNSoundfontRenderer({
@@ -150,7 +207,7 @@ function makeRenderer(overrides: { fetchPack?: (url: string) => Promise<string> 
     percussionBase: 'https://app.example.com/audio/percussion/',
     fetchPack:
       overrides.fetchPack ??
-      (async (url) => {
+      (async url => {
         fetched.push(url);
         return packBody(/\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!);
       }),
@@ -182,7 +239,9 @@ const DRUMS = {
 function plan(overrides: Partial<RenderPlan> = {}): RenderPlan {
   return {
     tracks: [PIANO],
-    events: [{ trackId: 't1', midi: 60, startSec: 0, durationSec: 1, velocity: 1 }],
+    events: [
+      { trackId: 't1', midi: 60, startSec: 0, durationSec: 1, velocity: 1 },
+    ],
     durationSec: 2,
     ...overrides,
   };
@@ -199,7 +258,7 @@ describe('packNameForRenderTrack', () => {
         ...DRUMS,
         isPercussion: false,
         voiceName: 'Acoustic Guitar (steel)',
-      }),
+      })
     ).toBe('acoustic_guitar_steel');
   });
 });
@@ -215,7 +274,7 @@ describe('createRNSoundfontRenderer', () => {
     expect(audio.samples.length).toBeGreaterThan(0);
   });
 
-  it('sizes the file to hold the last note\'s release tail', async () => {
+  it("sizes the file to hold the last note's release tail", async () => {
     const { renderer, graph } = makeRenderer();
     await renderer.render(plan({ durationSec: 3 }));
 
@@ -232,12 +291,12 @@ describe('createRNSoundfontRenderer', () => {
     expect(graph.scheduled[0]!.gain).toBeCloseTo(1, 5);
   });
 
-  it('applies each track\'s own volume and pan', async () => {
+  it("applies each track's own volume and pan", async () => {
     const { renderer, graph } = makeRenderer();
     await renderer.render(
       plan({
         tracks: [{ ...PIANO, volume: 0.5, pan: -0.8 }],
-      }),
+      })
     );
 
     expect(graph.scheduled[0]!.gain).toBeCloseTo(0.5, 5);
@@ -248,7 +307,9 @@ describe('createRNSoundfontRenderer', () => {
     // Matches live playback. Deriving it from the events alone opens a
     // muted-heavy export a couple of dB above what was heard.
     const quiet = makeRenderer();
-    await quiet.renderer.render(plan({ tracks: [PIANO, { ...PIANO, id: 'x' }, { ...PIANO, id: 'y' }] }));
+    await quiet.renderer.render(
+      plan({ tracks: [PIANO, { ...PIANO, id: 'x' }, { ...PIANO, id: 'y' }] })
+    );
     const solo = makeRenderer();
     await solo.renderer.render(plan());
 
@@ -262,8 +323,8 @@ describe('createRNSoundfontRenderer', () => {
 
     // A plan lists every track so the headroom is right. Fetching a 1MB kit
     // for a track with no notes is minutes of nothing.
-    expect(fetched.some((u) => u.includes('acoustic_grand_piano'))).toBe(true);
-    expect(fetched.some((u) => u.includes('percussion_25'))).toBe(false);
+    expect(fetched.some(u => u.includes('acoustic_grand_piano'))).toBe(true);
+    expect(fetched.some(u => u.includes('percussion_25'))).toBe(false);
   });
 
   it('never bends a drum, in an export as in playback', async () => {
@@ -272,10 +333,22 @@ describe('createRNSoundfontRenderer', () => {
       plan({
         tracks: [DRUMS],
         events: [
-          { trackId: 't2', midi: 38, startSec: 0, durationSec: 0.2, velocity: 1 }, // snare: defined
-          { trackId: 't2', midi: 56, startSec: 1, durationSec: 0.2, velocity: 1 }, // cowbell: not in this kit
+          {
+            trackId: 't2',
+            midi: 38,
+            startSec: 0,
+            durationSec: 0.2,
+            velocity: 1,
+          }, // snare: defined
+          {
+            trackId: 't2',
+            midi: 56,
+            startSec: 1,
+            durationSec: 0.2,
+            velocity: 1,
+          }, // cowbell: not in this kit
         ],
-      }),
+      })
     );
 
     // The snare sounds; the undefined slot is silent rather than answered by a
@@ -287,8 +360,12 @@ describe('createRNSoundfontRenderer', () => {
   it('says so when the native module is too old for an offline context', async () => {
     const graph = fakeOfflineApi();
     const renderer = createRNSoundfontRenderer({
-      loadAudioApi: async () => ({ ...graph.api, OfflineAudioContext: undefined }),
-      fetchPack: async (url) => packBody(/\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!),
+      loadAudioApi: async () => ({
+        ...graph.api,
+        OfflineAudioContext: undefined,
+      }),
+      fetchPack: async url =>
+        packBody(/\/([a-z0-9_]+)-mp3\.js$/.exec(url)![1]!),
     });
 
     await expect(renderer.render(plan())).rejects.toThrow(/>=0\.13/);

@@ -66,6 +66,9 @@ export class MockMusicPlayer implements IMusicPlayer {
   setMetronome(on: boolean): void {
     this.calls.push(`setMetronome(${on})`);
   }
+  setSoundingRenderDelay(seconds: number): void {
+    this.calls.push(`setSoundingRenderDelay(${seconds})`);
+  }
   setMasterVolume(v: number): void {
     this.calls.push(`setMasterVolume(${v})`);
   }

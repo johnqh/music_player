@@ -37,6 +37,7 @@ import { NoteQueue } from '../shared/note-queue.js';
 import { SoundingSet } from '../shared/sounding-set.js';
 import {
   SOUNDING_INTERVAL_MS,
+  soundingRenderDelayOrDefault,
   visualOffsetSeconds,
 } from '../shared/visual-sync.js';
 import { Governor } from './governor.js';
@@ -582,6 +583,13 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     this.applyTrackLevels();
   }
 
+  /** Publish-to-paint for the lit notes; see `PlaybackEngine`. */
+  private soundingRenderDelay = soundingRenderDelayOrDefault(Number.NaN);
+
+  setSoundingRenderDelay(seconds: number): void {
+    this.soundingRenderDelay = soundingRenderDelayOrDefault(seconds);
+  }
+
   setMetronome(enabled: boolean): void {
     this.metronomeEnabled = enabled;
     // Switching it off has to reach the horizon that is already queued, or the
@@ -894,7 +902,10 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   private reportSounding(): void {
     const at =
       this.clock.positionSeconds +
-      visualOffsetSeconds(this.deps.backend.outputLatency());
+      visualOffsetSeconds(
+        this.deps.backend.outputLatency(),
+        this.soundingRenderDelay
+      );
     const sounding = this.sounding.advanceTo(at);
     if (sounding) this.observer?.onActiveNotes(sounding);
   }

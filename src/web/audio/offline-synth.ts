@@ -44,7 +44,9 @@ export type LoadedOfflineSynth = {
 async function ensureFluidsynth(moduleUrl: string): Promise<void> {
   fluidsynthReady ??= (async () => {
     if (typeof document === 'undefined') {
-      throw new Error('Offline rendering needs a document to load libfluidsynth');
+      throw new Error(
+        'Offline rendering needs a document to load libfluidsynth'
+      );
     }
     // Before the script runs: emscripten reads the global Module on load.
     seedMainThreadQuietModule();
@@ -76,7 +78,9 @@ export type OfflineSynthRequest = {
 };
 
 /** The shared offline synth, building it on first use. */
-export async function getOfflineSynth(request: OfflineSynthRequest): Promise<LoadedOfflineSynth> {
+export async function getOfflineSynth(
+  request: OfflineSynthRequest
+): Promise<LoadedOfflineSynth> {
   const key = `${request.fluidsynthModuleUrl}|${request.fontUrl}|${request.sampleRate}`;
   if (cached?.key === key) return await cached.synth;
 
@@ -97,7 +101,9 @@ export async function getOfflineSynth(request: OfflineSynthRequest): Promise<Loa
       midiChannelCount: CHANNELS_PER_INSTANCE,
       polyphony: OFFLINE_POLYPHONY,
     });
-    const sfontId = await synth.loadSFont(await request.loadFont(request.fontUrl));
+    const sfontId = await synth.loadSFont(
+      await request.loadFont(request.fontUrl)
+    );
     return { synth, sfontId, sampleRate: request.sampleRate };
   })();
 

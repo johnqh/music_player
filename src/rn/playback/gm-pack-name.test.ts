@@ -29,8 +29,8 @@ describe('GM pack coverage', () => {
     // `GM_INSTRUMENTS` is in music_types this can sit beside the rule it
     // tests, and music_lib needs no dependency on this package for it.
     const missing = GM_INSTRUMENTS.filter(
-      (i) => !available.has(gmPackName(i.program, i.name)),
-    ).map((i) => `${i.program} "${i.name}" -> ${gmPackName(i.program, i.name)}`);
+      i => !available.has(gmPackName(i.program, i.name))
+    ).map(i => `${i.program} "${i.name}" -> ${gmPackName(i.program, i.name)}`);
     expect(missing).toEqual([]);
   });
 
