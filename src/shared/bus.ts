@@ -23,8 +23,7 @@ import type {
   TransportPlaybackState,
 } from '@sudobility/music_types';
 
-export type Unsubscribe = () => void;
-
+import type { Unsubscribe } from '../types.js';
 import { getMusicPositionSource } from '@sudobility/music_types';
 
 export class PlaybackBus {

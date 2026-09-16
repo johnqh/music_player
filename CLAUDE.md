@@ -10,8 +10,10 @@ building, and offline rendering. One of seven repos in the Moosiac family — se
 `music_app/docs/architecture.md`.
 
 **The rule: this package makes sound. `music_io` moves bytes. `music_codecs`
-reads and writes score formats. `music_lib` edits.** It takes a `Score` and
-produces audio; it knows nothing about editing, files or the store.
+reads and writes score formats. `music_editing` edits, and `music_lib` binds
+the two (`bindPlayer`, typed on this package's `IMusicPlayer`).** It takes a
+`Score` and produces audio; it knows nothing about editing, files or the store —
+and music_editing does not depend on it either.
 
 Its own package because playback was previously spread across three: the engines
 in `music_io`, the transport brain in `music_lib` where it read the Zustand
@@ -39,6 +41,9 @@ installs `js-synthesizer` and a React Native app installs
 `react-native-audio-api` without either carrying the other's.
 
 ## Gotchas
+
+- **`ScheduledClick` and `Unsubscribe` are declared once each** — in `playback/synth-backend.ts` and `types.ts`. The web click and the bus import them; each had an identical second declaration, which agrees only until one is edited. `src/__one-declaration.test.ts` counts them. This is a within-package guard against drift, not the moved-names guard the other libraries carry: music_lib imports this package through `/core` by name rather than re-exporting it wholesale, so a duplicate here is not a TS2308 in music_lib — it is two types that silently part.
+
 
 - **One fact, one declaration — and `src/__single-source.test.ts` enforces it.** A constant restated in a second package agrees with the first right up until one of them is edited, and nothing fails when they part: the build is clean, the types match, and the only symptom is a wrong sound or a picker quietly missing an entry. Measured across the family, 23 UPPER_CASE constants were declared in more than one repo — `CC_VOLUME` three times, `DYNAMICS` four, `C_MAJOR` five, and `DEFAULT_TIME_SIGNATURE` in four places under two names. The guard reads the list of names **from music_types at runtime** rather than restating it, because a check against duplication that duplicates what it checks would drift like everything else; its `ALLOWED` list is empty on purpose, so an exemption is a decision somebody writes down. Two shapes matter beyond the constants themselves. **A closed vocabulary is declared as an array and the type read off it** (`export const DYNAMICS = [...] as const; export type Dynamic = (typeof DYNAMICS)[number];`) — a TypeScript union has no runtime form, so anything that must *validate* a value has to write the list out again, which is exactly how music_api's decoder came to check generated music against its own private copy. **A label or option list keyed by the vocabulary is a `Record<T, ...>`, never a parallel array** — a record fails to compile when a member is added, an array silently goes on offering the old set; that is why the inspector's picker lists are `ACCIDENTAL_OPTIONS`/`ARTICULATION_OPTIONS` built from the vocabulary rather than `ACCIDENTALS`/`ARTICULATIONS` retyped. Test fixtures follow the same rule: the score fixtures live once, in `@sudobility/music_types/test`, and a package that needs a rendering fixture of its own re-exports them and adds to them.
 
@@ -90,30 +95,28 @@ installs `js-synthesizer` and a React Native app installs
   *production build that works fine*; music_app's `vite.config.ts` lists it
   beside music_lib and music_io.
 
-- **Platform *engines* are optional peers; `@breezystack/lamejs` is the one
-  exception.** A React Native app must never pull a browser audio library into
-  its graph, which is why `js-synthesizer` — libfluidsynth compiled to WASM, for
-  an AudioWorklet — is an optional peer that music_app declares itself. lamejs
-  stays a runtime `dependency` for two concrete reasons: `web-audio-codec.ts`
-  imports it *statically*, so an app that skipped installing it would fail to
-  load the entire web entry rather than just mp3 export; and `AudioCodec.encodeMp3`
-  is synchronous in `music_types`, so it cannot be made lazy the way
-  `js-synthesizer` is without changing that interface across four repos. It is
-  pure JS and runs under Metro — and now that `encodeMp3` is shared, the RN
-  entry imports it too, which settles the question: it is not a platform
-  library at all.
-- **There is no RN audio, and that is a decision, not a gap in the port.** The
-  web engine is libfluidsynth compiled to WASM running in an `AudioWorklet`;
-  React Native has no AudioWorklet, so there is nothing to port — an RN engine
-  means a different implementation of the same `PlaybackEngine` interface (a
-  native synth module, or `react-native-audio-api` plus a soundfont player).
-  What was there before subclassed the Tone engine over
-  `react-native-audio-api` and synthesised its own approximations of the
-  instruments, so it could never match what the web plays; a wrong sound is
-  worse than a clear error. `unavailablePlayback()` now throws from anything
-  that would make a sound and stays a silent no-op for the lifecycle methods, so
-  a shared component calling `pause()` on unmount does not crash the app. The
-  historical spikes are in `spikes/tone-on-rn-audio-api.md`.
+- **Platform *engines* are optional peers, and there is no exception.** A React
+  Native app must never pull a browser audio library into its graph, which is
+  why `js-synthesizer` — libfluidsynth compiled to WASM, for an AudioWorklet —
+  and `react-native-audio-api` are both optional peers the app declares itself,
+  and `dependencies` is empty (`no-domain-imports.test.ts` pins it). The mp3
+  encoder, `@breezystack/lamejs`, is not this package's: encoding a rendered file
+  is music_io's, which carries it as its one runtime dependency and records why
+  it is not a peer.
+- **React Native audio is a different implementation, not a port.** The web
+  engine is libfluidsynth compiled to WASM running in an `AudioWorklet`; React
+  Native has no AudioWorklet, so there was nothing to port — an RN engine had to
+  be a different implementation of the same `PlaybackEngine` interface. What was
+  there first subclassed the Tone engine over `react-native-audio-api` and
+  synthesised its own approximations of the instruments, so it could never match
+  what the web plays; it was deleted, and for a while RN deliberately had no
+  audio at all rather than a wrong sound. That gap is closed two ways, both in
+  `src/rn/`: `createMusicPlayer` builds `RNSamplePlaybackEngine`
+  (`playback/sample-engine.ts`, the FluidR3 sample engine described next), which
+  needs no native module and is the default; and `NativeSynthBackend`
+  (`playback/native-backend.ts`) drives a host-supplied native synth through the
+  same `SoundfontPlaybackEngine` scheduler the browser uses. The historical
+  spikes are in music_io's `spikes/tone-on-rn-audio-api.md`.
 - **The two platforms play the same font by different means, and that is the
   design.** Web runs libfluidsynth (WebAssembly) in an `AudioWorklet`; React
   Native has neither — `react-native-audio-api` exposes no `addModule` and
@@ -124,7 +127,7 @@ installs `js-synthesizer` and a React Native app installs
   What is lost is SF2's live per-zone filters, LFOs and modulator envelopes —
   expressive variation, not the instrument's identity. The engine that was
   deleted synthesised oscillator approximations, which is a different and much
-  worse thing. See `spikes/rn-sample-playback.md`.
+  worse thing. See music_io's `spikes/rn-sample-playback.md`.
 - **`applyMix(score)` exists because mute and solo had setters and volume and pan did not.** A track's volume was read once at `loadScore` and pan only in `applyScoreToHost`, so once `music_lib`'s edit lock made a mix change stop reloading the score, moving a fader mid-playback moved the fader and not the sound. The web engine pushes CC7 and CC10 from the score and schedules nothing. **The RN engine reaches the same place with a node instead of a control change:** one gain-and-panner strip per track, built on first use, with voices connecting to their track's strip rather than to the master. Per-track rather than per-voice — the offline renderer builds a panner per voice because it schedules once and never changes its mind, where a live fader has to move under notes that are already sounding. That also settles where the headroom trim lives on RN: on the master, as it is on web, not multiplied into every voice's gain. **The metronome click bypasses the master on both platforms** so a score with more parts does not get a quieter click.
 - **The transport is shared; only voicing is per platform.** `shared/playback/`
   holds score flattening, the note cursor, the sounding set, the dispatch window
@@ -316,7 +319,7 @@ installs `js-synthesizer` and a React Native app installs
   schedules against a *live* clock and pumps 200ms at a time, so reusing it for
   export would make a render take as long as the piece. `RenderPlan` arrives
   fully resolved (seconds, not ticks; mute and solo already applied by
-  `renderEvents` in music_lib), so `rn/audio/offline-render.ts` schedules the
+  `renderEvents` in `shared/render-events.ts`), so `rn/audio/offline-render.ts` schedules the
   whole thing up front against an `OfflineAudioContext`. What it *does* share
   with the engine is `PackLibrary` and `planVoice` — the sample choice and the
   gain — which is what keeps the file a recording of what was heard rather than
@@ -329,7 +332,8 @@ installs `js-synthesizer` and a React Native app installs
 - `music_types` — the model, the score domain, the playhead (`@sudobility/music_types`)
 - `music_codecs` — score file formats
 - `music_io` — files, audio encoding, XML, MIDI input
-- `music_lib` — editing; binds the store to this through its playback adapter
+- `music_editing` — editing; depends on neither this package nor music_codecs
+- `music_lib` — binds a store to this through `bindPlayer` and its playback adapter
 - `music_app` — the web UI
 
 ## Git Workflow

@@ -17,19 +17,13 @@
  * not go through the synth. So pausing left the room ticking for as long as
  * the horizon was deep.
  */
+import type { ScheduledClick } from '../../playback/synth-backend.js';
+
 const ACCENT_HZ = 1500;
 const BEAT_HZ = 1000;
 const CLICK_SECONDS = 0.03;
 /** Quiet enough to sit under the music, loud enough to hear over it. */
 const CLICK_PEAK = 0.25;
-
-/** A click already on the audio graph, and the two things a caller can do with it. */
-export type ScheduledClick = {
-  /** When it has finished sounding, so a caller knows when to forget it. */
-  readonly endsAt: number;
-  /** Silences it from `atSeconds`, whether or not it has begun. */
-  cancel(atSeconds: number): void;
-};
 
 export function scheduleClick(
   context: BaseAudioContext,
