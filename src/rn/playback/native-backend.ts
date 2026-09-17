@@ -31,7 +31,7 @@ import type {
 const SETTINGS: NativeSynthSettings = {
   midiChannelCount: CHANNELS_PER_INSTANCE,
   polyphony: 2048,
-  initialGain: 0.2,
+  initialGain: 0.35,
   chorusActive: true,
   reverbActive: true,
 };

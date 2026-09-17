@@ -265,7 +265,7 @@ export class SynthHost {
         polyphony: POLYPHONY,
         // The rest match fluidsynth's own defaults, written out so each one is
         // a decision on the record. See `SynthSettings`.
-        initialGain: 0.2,
+        initialGain: 0.35,
         midiBankSelect: 'gs',
         chorusActive: true,
         reverbActive: true,
