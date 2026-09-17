@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { Articulation, Score } from '@sudobility/music_types';
 import { isNoteEvent } from '@sudobility/music_types';
 import { twinkleScore } from '@sudobility/music_types/test';
-import { playbackPlan } from '@sudobility/music_player/core';
+import { playbackPlan } from './plan.js';
 import { flattenScoreNotes } from '@sudobility/music_types';
 
 /** Marks every note of the first track, so a whole part plays articulated. */
