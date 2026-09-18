@@ -76,6 +76,13 @@ export type WebBackendDeps = {
   createContext?: () => AudioContext;
 };
 
+const WEB_AUDIO_DEBUG = '[ScoreSmith audio]';
+
+function debugAudio(message: string, details?: Record<string, unknown>): void {
+  if (details) console.info(WEB_AUDIO_DEBUG, message, details);
+  else console.info(WEB_AUDIO_DEBUG, message);
+}
+
 /**
  * Fetching is the measurable half of the load; handing the bytes to fluidsynth
  * takes seconds more and reports nothing. So the bar is held below halfway
@@ -111,8 +118,13 @@ export class WebSynthBackend implements SynthBackend {
     onProgress: (state: PlaybackLoadState) => void;
   }): Promise<PrepareResult> {
     this.context ??= this.deps.createContext?.() ?? new AudioContext();
+    debugAudio('context created', this.contextSnapshot());
     await this.resumeContext();
-    if (!this.contextCanRun()) return 'deferred';
+    debugAudio('context resume attempted', this.contextSnapshot());
+    if (!this.contextCanRun()) {
+      debugAudio('context is not runnable; deferring synth load', this.contextSnapshot());
+      return 'deferred';
+    }
 
     onProgress({ status: 'loading', fraction: 0 });
     const soundfont = await this.deps.loadFont(
@@ -132,6 +144,11 @@ export class WebSynthBackend implements SynthBackend {
       soundfont,
       instanceCount,
     });
+    // Safari can report a running context before the AudioWorklet graph is
+    // connected. Resume once more after the destination exists; this is a
+    // no-op elsewhere and recovers contexts that remain output-suspended.
+    await this.resumeContext();
+    debugAudio('synth graph ready', this.contextSnapshot());
     return 'ready';
   }
 
@@ -140,11 +157,43 @@ export class WebSynthBackend implements SynthBackend {
     const context = this.context as
       { state?: string; resume?: () => Promise<void> } | undefined;
     if (!context?.resume || context.state === 'running') return;
+    debugAudio('resuming context', this.contextSnapshot());
     try {
       await context.resume();
-    } catch {
+      debugAudio('context resume resolved', this.contextSnapshot());
+    } catch (error) {
+      debugAudio('context resume rejected', {
+        ...this.contextSnapshot(),
+        error: error instanceof Error ? error.message : String(error),
+      });
       // No gesture yet. `contextCanRun` will see it and defer the rest.
     }
+  }
+
+  private contextSnapshot(): Record<string, unknown> {
+    const context = this.context as
+      | {
+          state?: string;
+          sampleRate?: number;
+          currentTime?: number;
+          baseLatency?: number;
+          outputLatency?: number;
+          destination?: { maxChannelCount?: number; channelCount?: number };
+          audioWorklet?: unknown;
+        }
+      | null;
+    if (!context) return { exists: false };
+    return {
+      exists: true,
+      state: context.state,
+      sampleRate: context.sampleRate,
+      currentTime: context.currentTime,
+      baseLatency: context.baseLatency,
+      outputLatency: context.outputLatency,
+      maxChannelCount: context.destination?.maxChannelCount,
+      channelCount: context.destination?.channelCount,
+      hasAudioWorklet: Boolean(context.audioWorklet),
+    };
   }
 
   /** A stub context in a test has no `state`; only a real suspended one blocks. */
