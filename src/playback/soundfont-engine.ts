@@ -235,6 +235,10 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     return this.initializing;
   }
 
+  activateAudio(): void {
+    this.deps.backend.activateAudio?.();
+  }
+
   private async bringUp(): Promise<void> {
     if (this.initialized) return;
     try {
@@ -455,6 +459,10 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
    */
   async play(fromTick?: number): Promise<void> {
     if (!this.plan) return;
+    // Safari may report a context as running after the click's gesture window
+    // has expired, while still suppressing its hardware output. Start the
+    // device before any asynchronous score/synth work begins.
+    this.deps.backend.activateAudio?.();
     if (fromTick !== undefined) this.seek(fromTick);
     this.startAtSeconds = this.clock.positionSeconds;
     this.nextPumpDueAt = null;

@@ -27,6 +27,9 @@ export type Unsubscribe = () => void;
  * playback adapter and compose the primitives below.
  */
 export interface IMusicPlayer {
+  /** Activates browser audio synchronously from the user's Play gesture. */
+  activateAudio?(): void;
+
   /**
    * Adopts a score.
    *

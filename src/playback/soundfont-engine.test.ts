@@ -377,16 +377,15 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
     return base;
   }
 
-  it('does not touch the synth while the context is suspended', async () => {
-    // A suspended context never runs its AudioWorklet, and the synth's font
-    // load round-trips through it — so this would not fail, it would hang for
-    // good, leaving the transport stuck at "stopped" with a clean console.
+  it('preloads the synth while the context is suspended', async () => {
+    // Resource loading happens before the first gesture so the Play button is
+    // ready immediately; the gesture only needs to resume the completed graph.
     const context = stubContext() as unknown as Record<string, unknown>;
     context.state = 'suspended';
     const { engine, host, plan } = setup(undefined, () => context as never);
     await engine.initialize();
     await engine.load(plan);
-    expect(host.init).not.toHaveBeenCalled();
+    expect(host.init).toHaveBeenCalled();
   });
 
   it('resumes the context and brings the synth up when play is pressed', async () => {
@@ -394,7 +393,8 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
     const context = suspendableContext();
     const { engine, host, plan } = setup(undefined, () => context as never);
     await engine.load(plan);
-    expect(host.init).not.toHaveBeenCalled();
+    await engine.initialize();
+    expect(host.init).toHaveBeenCalled();
 
     await engine.play();
     expect(context.resume as ReturnType<typeof vi.fn>).toHaveBeenCalled();
@@ -604,19 +604,19 @@ describe('SoundfontPlaybackEngine: bringing the synth up', () => {
     expect(host.init).toHaveBeenCalledTimes(1);
   });
 
-  it('retries after a deferred attempt rather than caching it forever', async () => {
+  it('does not cache a second synth initialization', async () => {
     const context = stubContext() as unknown as Record<string, unknown>;
     context.state = 'suspended';
     context.resume = vi.fn(async () => {});
     const { engine, host } = setup(undefined, () => context as never);
     await engine.initialize();
-    expect(host.init).not.toHaveBeenCalled();
+    expect(host.init).toHaveBeenCalledTimes(1);
 
     context.resume = vi.fn(async () => {
       context.state = 'running';
     });
     await engine.initialize();
-    expect(host.init).toHaveBeenCalled();
+    expect(host.init).toHaveBeenCalledTimes(1);
   });
 });
 

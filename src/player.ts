@@ -154,6 +154,10 @@ export class MusicPlayer implements IMusicPlayer {
     await this.engine.play();
   }
 
+  activateAudio(): void {
+    this.engine.activateAudio?.();
+  }
+
   pause(): void {
     this.engine.pause();
   }

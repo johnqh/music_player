@@ -44,6 +44,8 @@ export type ScheduledClick = {
 export type PrepareResult = 'ready' | 'deferred';
 
 export type SynthBackend = {
+  /** Starts the browser audio device synchronously from the user's gesture. */
+  activateAudio?(): void;
   /**
    * Brings up the device, the synths and the soundfont, reporting progress.
    *

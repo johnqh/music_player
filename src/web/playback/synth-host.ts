@@ -161,6 +161,9 @@ export class SynthHost {
   /** `instance:channel` for every channel that is percussion — see `programSelect`. */
   private percussionChannels = new Set<string>();
   private master: GainNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private mediaDestination: MediaStreamAudioDestinationNode | null = null;
+  private mediaElement: HTMLAudioElement | null = null;
   private masterVolume = 1;
   private trackCount = 1;
   /** Kept so instances can be added later; see `ensureInstances`. */
@@ -203,19 +206,73 @@ export class SynthHost {
     // peaking at 1.004, so the limiter is not optional.
     const master = context.createGain();
     const limiter = context.createDynamicsCompressor();
+    const analyser =
+      typeof context.createAnalyser === 'function'
+        ? context.createAnalyser()
+        : null;
     limiter.threshold.value = LIMITER_CEILING_DB;
     limiter.knee.value = 0;
     limiter.ratio.value = 20;
     limiter.attack.value = 0.003;
     limiter.release.value = 0.25;
     master.connect(limiter);
-    limiter.connect(context.destination);
+    const useMediaOutput = this.shouldUseMediaOutput(context);
+    if (analyser && useMediaOutput) {
+      limiter.connect(analyser);
+      const mediaDestination = (
+        context as AudioContext
+      ).createMediaStreamDestination();
+      const mediaElement = document.createElement('audio');
+      mediaElement.autoplay = true;
+      mediaElement.setAttribute('playsinline', '');
+      mediaElement.setAttribute('aria-hidden', 'true');
+      mediaElement.style.display = 'none';
+      mediaElement.srcObject = mediaDestination.stream;
+      document.body?.appendChild(mediaElement);
+      analyser.connect(mediaDestination);
+      this.mediaDestination = mediaDestination;
+      this.mediaElement = mediaElement;
+      console.info('[ScoreSmith audio]', 'using Safari media output bridge', {
+        channels: mediaDestination.channelCount,
+      });
+    } else if (analyser) {
+      limiter.connect(analyser);
+      analyser.connect(context.destination);
+      analyser.fftSize = 2048;
+    } else {
+      limiter.connect(context.destination);
+    }
     this.master = master;
+    this.analyser = analyser;
     this.context = context;
     this.soundfont = options.soundfont;
 
     await this.ensureInstances(options.instanceCount);
     this.applyMasterGain();
+    this.activateAudio();
+  }
+
+  activateAudio(): void {
+    const element = this.mediaElement;
+    if (!element) return;
+    void element.play().then(
+      () => console.info('[ScoreSmith audio]', 'media output bridge playing'),
+      (error) =>
+        console.info('[ScoreSmith audio]', 'media output bridge play rejected', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    );
+  }
+
+  private shouldUseMediaOutput(context: BaseAudioContext): boolean {
+    if (
+      typeof document === 'undefined' ||
+      typeof navigator === 'undefined' ||
+      typeof (context as AudioContext).createMediaStreamDestination !== 'function'
+    )
+      return false;
+    const userAgent = navigator.userAgent;
+    return /Safari/i.test(userAgent) && !/Chrome|Chromium|CriOS|Android/i.test(userAgent);
   }
 
   /**
@@ -272,7 +329,30 @@ export class SynthHost {
         minNoteLength: 10,
       };
       synth.init(context.sampleRate, settings);
-      synth.createAudioNode(context, settings).connect(this.master);
+      const audioNode = synth.createAudioNode(context, settings);
+      // Safari is stricter than Chromium about the channel mode of a source
+      // AudioWorkletNode with no inputs. Make the stereo output explicit before
+      // it enters the master bus; this is harmless on browsers that already
+      // compute the same channel layout.
+      try {
+        audioNode.channelCount = 2;
+        audioNode.channelCountMode = 'explicit';
+        audioNode.channelInterpretation = 'speakers';
+      } catch (error) {
+        console.info(
+          '[ScoreSmith audio]',
+          'worklet channel configuration rejected',
+          {
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+      }
+      console.info('[ScoreSmith audio]', 'worklet node connected', {
+        channelCount: audioNode.channelCount,
+        channelCountMode: audioNode.channelCountMode,
+        channelInterpretation: audioNode.channelInterpretation,
+      });
+      audioNode.connect(this.master);
       this.sfontIds[i] = await synth.loadSFont(soundfont);
       this.sequencers[i] = await this.createSequencerFor(synth);
       // The governor speaks for every instance, and it may already have spoken.
@@ -467,6 +547,31 @@ export class SynthHost {
     this.applyMasterGain();
   }
 
+  outputSnapshot(): Record<string, unknown> {
+    const analyser = this.analyser;
+    if (!analyser) return { available: false };
+    const samples = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(samples);
+    let peak = 0;
+    let sumSquares = 0;
+    for (const sample of samples) {
+      const magnitude = Math.abs(sample);
+      peak = Math.max(peak, magnitude);
+      sumSquares += sample * sample;
+    }
+    return {
+      available: true,
+      fftSize: analyser.fftSize,
+      peak,
+      rms: Math.sqrt(sumSquares / samples.length),
+      contextState:
+        this.context && 'state' in this.context
+          ? this.context.state
+          : undefined,
+      synthCount: this.synths.length,
+    };
+  }
+
   private applyMasterGain(): void {
     if (this.master)
       this.master.gain.value =
@@ -481,6 +586,11 @@ export class SynthHost {
     this.sfontIds = [];
     this.percussionChannels.clear();
     this.master = null;
+    this.analyser = null;
+    this.mediaElement?.pause();
+    this.mediaElement?.remove();
+    this.mediaElement = null;
+    this.mediaDestination = null;
     this.context = null;
     this.soundfont = null;
   }

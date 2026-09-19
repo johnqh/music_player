@@ -62,6 +62,8 @@ export type SynthHostLike = {
   setInterpolation(order: number): void;
   setMasterVolume(volume: number): void;
   setTrackCount(count: number): void;
+  outputSnapshot?: () => Record<string, unknown>;
+  activateAudio?: () => void;
   dispose(): void;
 };
 
@@ -96,6 +98,8 @@ export class WebSynthBackend implements SynthBackend {
   > &
     WebBackendDeps;
   private context: AudioContext | null = null;
+  private outputProbeScheduled = false;
+  private removeLifecycleListeners: (() => void) | null = null;
 
   constructor(deps: WebBackendDeps) {
     this.deps = {
@@ -110,6 +114,14 @@ export class WebSynthBackend implements SynthBackend {
     };
   }
 
+  activateAudio(): void {
+    this.context ??= this.deps.createContext?.() ?? new AudioContext();
+    this.installLifecycleListeners();
+    this.deps.host.activateAudio?.();
+    debugAudio('audio activated from play gesture', this.contextSnapshot());
+    void this.resumeContext();
+  }
+
   async prepare({
     instanceCount,
     onProgress,
@@ -118,12 +130,18 @@ export class WebSynthBackend implements SynthBackend {
     onProgress: (state: PlaybackLoadState) => void;
   }): Promise<PrepareResult> {
     this.context ??= this.deps.createContext?.() ?? new AudioContext();
+    this.installLifecycleListeners();
     debugAudio('context created', this.contextSnapshot());
     await this.resumeContext();
     debugAudio('context resume attempted', this.contextSnapshot());
     if (!this.contextCanRun()) {
-      debugAudio('context is not runnable; deferring synth load', this.contextSnapshot());
-      return 'deferred';
+      // Preload the font and worklet graph while Safari keeps the context
+      // suspended. The Play handler resumes the already-built graph from the
+      // user's gesture, so the first audible note starts immediately.
+      debugAudio(
+        'context suspended; preloading synth graph',
+        this.contextSnapshot()
+      );
     }
 
     onProgress({ status: 'loading', fraction: 0 });
@@ -171,17 +189,15 @@ export class WebSynthBackend implements SynthBackend {
   }
 
   private contextSnapshot(): Record<string, unknown> {
-    const context = this.context as
-      | {
-          state?: string;
-          sampleRate?: number;
-          currentTime?: number;
-          baseLatency?: number;
-          outputLatency?: number;
-          destination?: { maxChannelCount?: number; channelCount?: number };
-          audioWorklet?: unknown;
-        }
-      | null;
+    const context = this.context as {
+      state?: string;
+      sampleRate?: number;
+      currentTime?: number;
+      baseLatency?: number;
+      outputLatency?: number;
+      destination?: { maxChannelCount?: number; channelCount?: number };
+      audioWorklet?: unknown;
+    } | null;
     if (!context) return { exists: false };
     return {
       exists: true,
@@ -193,6 +209,35 @@ export class WebSynthBackend implements SynthBackend {
       maxChannelCount: context.destination?.maxChannelCount,
       channelCount: context.destination?.channelCount,
       hasAudioWorklet: Boolean(context.audioWorklet),
+    };
+  }
+
+  private installLifecycleListeners(): void {
+    if (this.removeLifecycleListeners || typeof document === 'undefined')
+      return;
+    const context = this.context as
+      | (AudioContext & { addEventListener?: typeof document.addEventListener })
+      | null;
+    if (!context) return;
+    const resumeIfVisible = (): void => {
+      if (document.visibilityState === 'hidden') return;
+      debugAudio(
+        'page became active; checking context',
+        this.contextSnapshot()
+      );
+      void this.resumeContext();
+    };
+    const onStateChange = (): void => {
+      debugAudio('context state changed', this.contextSnapshot());
+      if (context.state !== 'running') void this.resumeContext();
+    };
+    document.addEventListener('visibilitychange', resumeIfVisible);
+    window.addEventListener('pageshow', resumeIfVisible);
+    context.addEventListener?.('statechange', onStateChange);
+    this.removeLifecycleListeners = () => {
+      document.removeEventListener('visibilitychange', resumeIfVisible);
+      window.removeEventListener('pageshow', resumeIfVisible);
+      context.removeEventListener?.('statechange', onStateChange);
     };
   }
 
@@ -232,9 +277,20 @@ export class WebSynthBackend implements SynthBackend {
     dur: number
   ): void {
     this.deps.host.noteAt(i, c, m, v, delay, dur);
+    this.scheduleOutputProbe();
   }
   noteOn(i: number, c: number, m: number, v: number): void {
     this.deps.host.noteOn(i, c, m, v);
+    this.scheduleOutputProbe();
+  }
+
+  private scheduleOutputProbe(): void {
+    if (this.outputProbeScheduled || !this.deps.host.outputSnapshot) return;
+    this.outputProbeScheduled = true;
+    setTimeout(() => {
+      debugAudio('output sample probe', this.deps.host.outputSnapshot?.());
+      this.outputProbeScheduled = false;
+    }, 150);
   }
   noteOff(i: number, c: number, m: number): void {
     this.deps.host.noteOff(i, c, m);
@@ -262,6 +318,8 @@ export class WebSynthBackend implements SynthBackend {
   }
 
   dispose(): void {
+    this.removeLifecycleListeners?.();
+    this.removeLifecycleListeners = null;
     this.deps.host.dispose();
     this.context?.close?.();
     this.context = null;

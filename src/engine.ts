@@ -59,6 +59,9 @@ export type PlaybackObserver = {
 };
 
 export interface PlaybackEngine {
+  /** Activates browser audio synchronously from the user's Play gesture. */
+  activateAudio?(): void;
+
   initialize(): Promise<void>;
   /** Adopts a plan. The engine is handed music, never a score. */
   load(plan: PlaybackPlan): Promise<void>;

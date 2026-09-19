@@ -61,6 +61,9 @@ export function createMusicPlayer({
 }: {
   soundfont: SoundfontAssets;
 }): MusicPlayer {
+  console.info('[ScoreSmith audio]', 'web music_player module active', {
+    packageVersion: '0.1.34-local',
+  });
   return new MusicPlayer(
     new SoundfontPlaybackEngine({
       backend: new WebSynthBackend({
