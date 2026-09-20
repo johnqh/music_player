@@ -13,7 +13,11 @@
  * tested against a stub instead of being verifiable only by ear. The
  * percussion guard below is the one that most needs it.
  */
-import { headroomTrimFor, LIMITER_CEILING_DB } from '../../shared/mix.js';
+import {
+  headroomTrimFor,
+  LIMITER_CEILING_DB,
+  SYNTH_INITIAL_GAIN,
+} from '../../shared/mix.js';
 import { CHANNELS_PER_INSTANCE } from '../../playback/channel-allocator.js';
 import { createWorkletQuietModuleUrl } from './quiet-stub-notices.js';
 import { DRUM_BANK, PERCUSSION_CHANNEL } from '@sudobility/music_types';
@@ -322,7 +326,7 @@ export class SynthHost {
         polyphony: POLYPHONY,
         // The rest match fluidsynth's own defaults, written out so each one is
         // a decision on the record. See `SynthSettings`.
-        initialGain: 0.35,
+        initialGain: SYNTH_INITIAL_GAIN,
         midiBankSelect: 'gs',
         chorusActive: true,
         reverbActive: true,

@@ -13,6 +13,7 @@ import type {
   SynthBackend,
 } from '../../playback/synth-backend.js';
 import { CHANNELS_PER_INSTANCE } from '../../playback/channel-allocator.js';
+import { SYNTH_INITIAL_GAIN } from '../../shared/mix.js';
 import type { PlaybackLoadState } from '@sudobility/music_types';
 import { PERCUSSION_CHANNEL } from '@sudobility/music_types';
 import type {
@@ -31,7 +32,7 @@ import type {
 const SETTINGS: NativeSynthSettings = {
   midiChannelCount: CHANNELS_PER_INSTANCE,
   polyphony: 2048,
-  initialGain: 0.35,
+  initialGain: SYNTH_INITIAL_GAIN,
   chorusActive: true,
   reverbActive: true,
 };

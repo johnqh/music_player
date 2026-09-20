@@ -26,6 +26,16 @@
 export const LIMITER_CEILING_DB = -1;
 
 /**
+ * FluidSynth's per-engine output gain before the shared master bus.
+ *
+ * The previous 0.35 setting left ordinary scores unnecessarily quiet, while
+ * the master headroom trim and limiter already provide the protection needed
+ * when several tracks sum together. Keep this in the shared mix module so web
+ * and native playback cannot drift apart again.
+ */
+export const SYNTH_INITIAL_GAIN = 0.7;
+
+/**
  * How far to pull the master down for `trackCount` channels summing into it.
  *
  * Every channel is scheduled at its own MIDI volume with nothing reconciling
