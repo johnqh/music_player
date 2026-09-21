@@ -42,7 +42,11 @@ import {
 } from '../shared/visual-sync.js';
 import { Governor } from './governor.js';
 import type { ScheduledClick, SynthBackend } from './synth-backend.js';
-import { CC_PAN, CC_VOLUME } from '@sudobility/music_types';
+import { CC_EXPRESSION, CC_PAN, CC_VOLUME } from '@sudobility/music_types';
+import {
+  instrumentExpression,
+  percussionExpression,
+} from '../shared/instrument-gain.js';
 
 export type SoundfontEngineDeps = {
   /** Everything that makes sound: the synths, the clock, the font, the click. */
@@ -404,6 +408,20 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
           assignment.instance,
           assignment.channel,
           track.midiProgram
+        );
+        this.deps.backend.controlChange(
+          assignment.instance,
+          assignment.channel,
+          CC_EXPRESSION,
+          instrumentExpression(track.midiProgram)
+        );
+      }
+      if (track.isPercussion) {
+        this.deps.backend.controlChange(
+          assignment.instance,
+          assignment.channel,
+          CC_EXPRESSION,
+          percussionExpression()
         );
       }
       this.deps.backend.controlChange(

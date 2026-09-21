@@ -18,10 +18,14 @@
  * load — for every single export.
  */
 import type { DecodedAudio, RenderPlan } from '@sudobility/music_types';
-import { CC_PAN, CC_VOLUME } from '@sudobility/music_types';
+import { CC_EXPRESSION, CC_PAN, CC_VOLUME } from '@sudobility/music_types';
 import { DRUM_BANK } from '@sudobility/music_types';
 import { allocateChannels } from '../../playback/channel-allocator.js';
 import { headroomTrimFor, limitPeaks } from '../../shared/mix.js';
+import {
+  instrumentExpression,
+  percussionExpression,
+} from '../../shared/instrument-gain.js';
 import type { ChannelAssignment } from '../../playback/channel-allocator.js';
 import { getOfflineSynth } from './offline-synth.js';
 import type { LoadedOfflineSynth } from './offline-synth.js';
@@ -141,6 +145,13 @@ export function createSoundfontRenderer(
           synth.midiSetChannelType(channel, false);
           synth.midiProgramSelect(channel, sfontId, 0, track.midiProgram);
         }
+        synth.midiControl(
+          channel,
+          CC_EXPRESSION,
+          track.isPercussion
+            ? percussionExpression()
+            : instrumentExpression(track.midiProgram)
+        );
         synth.midiControl(
           channel,
           CC_VOLUME,

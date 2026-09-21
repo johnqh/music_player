@@ -54,6 +54,7 @@ export function planVoice({
   durationSeconds,
   velocity,
   trackGain,
+  instrumentTrim = 1,
   choice,
   program,
 }: {
@@ -61,6 +62,7 @@ export function planVoice({
   durationSeconds: number;
   velocity: number;
   trackGain: number;
+  instrumentTrim?: number;
   choice: SampleChoice;
   /**
    * GM program, for the instrument's own release and velocity-to-brightness.
@@ -81,7 +83,7 @@ export function planVoice({
     releaseAt,
     endAt: releaseAt + release,
     // SF2's concave velocity curve, not a linear one — see `velocityGain`.
-    gain: velocityGain(velocity) * trackGain,
+    gain: velocityGain(velocity) * trackGain * instrumentTrim,
     cutoffHz: program === undefined ? null : cutoffFor(program, velocity),
     uri: choice.uri,
     detuneCents: choice.detuneCents,

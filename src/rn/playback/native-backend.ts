@@ -15,7 +15,11 @@ import type {
 import { CHANNELS_PER_INSTANCE } from '../../playback/channel-allocator.js';
 import { SYNTH_INITIAL_GAIN } from '../../shared/mix.js';
 import type { PlaybackLoadState } from '@sudobility/music_types';
-import { PERCUSSION_CHANNEL } from '@sudobility/music_types';
+import {
+  CC_EXPRESSION,
+  PERCUSSION_CHANNEL,
+} from '@sudobility/music_types';
+import { percussionExpression } from '../../shared/instrument-gain.js';
 import type {
   NativeSynth,
   NativeSynthApi,
@@ -134,6 +138,15 @@ export class NativeSynthBackend implements SynthBackend {
   private adoptClickInstance(instanceCount: number): void {
     this.clickInstance = instanceCount;
     this.require().setChannelPercussion(this.clickInstance, PERCUSSION_CHANNEL);
+    // The shared synth gain was raised to make room for quiet patches. Keep
+    // the dedicated click at the calibrated kit level rather than making the
+    // metronome louder every time an instrument trim changes.
+    this.require().controlChange(
+      this.clickInstance,
+      PERCUSSION_CHANNEL,
+      CC_EXPRESSION,
+      percussionExpression()
+    );
   }
 
   now(): number {

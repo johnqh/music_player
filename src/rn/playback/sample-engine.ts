@@ -50,6 +50,7 @@ import { NoteQueue } from '../../shared/note-queue.js';
 import { SoundingSet } from '../../shared/sounding-set.js';
 import { planDispatch } from '../../shared/pump-window.js';
 import { headroomTrimFor } from '../../shared/mix.js';
+import { instrumentGain, PERCUSSION_GAIN } from '../../shared/instrument-gain.js';
 import { gmPackName, percussionPackName } from './gm-pack-name.js';
 import { PackLibrary } from './pack-library.js';
 import { RELEASE_SECONDS, planVoice } from './voice-plan.js';
@@ -539,6 +540,10 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
       // still move it after the note has started, and the headroom lives on the
       // master — the same division the web engine and the offline renderer use.
       trackGain: 1,
+      instrumentTrim:
+        track?.isPercussion || program === undefined
+          ? PERCUSSION_GAIN
+          : instrumentGain(program),
       choice,
       // Percussion has no melodic expression: a kit's programs address kits,
       // and a drum is a one-shot whose decay is already in the recording.
@@ -885,7 +890,15 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     // Unity, not `masterVolume`: this connects to the master, which already
     // carries it. Passing it here again played every audition at the square of
     // the fader — a quarter of the level at half volume.
-    const voice = this.buildVoice(buffer, choice.detuneCents, 1, now, now + 30);
+    const voice = this.buildVoice(
+      buffer,
+      choice.detuneCents,
+      auditionVoice.isPercussion
+        ? PERCUSSION_GAIN
+        : instrumentGain(auditionVoice.program),
+      now,
+      now + 30
+    );
     this.auditioned.set(midi, voice);
   }
 

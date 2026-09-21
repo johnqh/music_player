@@ -28,12 +28,15 @@ export const LIMITER_CEILING_DB = -1;
 /**
  * FluidSynth's per-engine output gain before the shared master bus.
  *
- * The previous 0.35 setting left ordinary scores unnecessarily quiet, while
- * the master headroom trim and limiter already provide the protection needed
- * when several tracks sum together. Keep this in the shared mix module so web
- * and native playback cannot drift apart again.
+ * The output is paired with the shared CC11 patch trim: ordinary patches use
+ * half of this level, while quiet patches can use the full level. Keep this in
+ * the shared mix module so web and native playback cannot drift apart again.
  */
-export const SYNTH_INITIAL_GAIN = 0.7;
+// The expression trim reserves half the synth's output for quiet FluidR3
+// patches. A normal patch therefore remains 0.7 (1.4 * 0.5), while a patch
+// with a 2x correction can use the full output without exceeding the synth's
+// nominal range.
+export const SYNTH_INITIAL_GAIN = 1.4;
 
 /**
  * How far to pull the master down for `trackCount` channels summing into it.

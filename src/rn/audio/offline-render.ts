@@ -26,6 +26,7 @@ import { gmPackName, percussionPackName } from '../playback/gm-pack-name.js';
 import { PackLibrary } from '../playback/pack-library.js';
 import { RELEASE_SECONDS, planVoice } from '../playback/voice-plan.js';
 import { sustains } from '../playback/expression.js';
+import { instrumentGain, PERCUSSION_GAIN } from '../../shared/instrument-gain.js';
 import { applySustainLoop } from '../playback/sustain-loop.js';
 import { loadAudioApi } from '../playback/audio-api.js';
 import type {
@@ -128,6 +129,9 @@ export function createRNSoundfontRenderer(
           durationSeconds: event.durationSec,
           velocity: event.velocity * 127,
           trackGain: track.volume,
+          instrumentTrim: track.isPercussion
+            ? PERCUSSION_GAIN
+            : instrumentGain(track.voiceProgram),
           choice: voicing.choice,
           // Same expression as playback — velocity curve, per-instrument
           // release, velocity-to-brightness — so the file is a recording of
