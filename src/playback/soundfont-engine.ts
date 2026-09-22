@@ -645,12 +645,30 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
         assignment.channel,
         voice.program
       );
+      // Mirrors `applyPlanToHost`'s percussion branch: the same expression
+      // trim a real track's kit gets, or an audition kit sounds up to 2x
+      // louder than the identical kit heard during playback (`SYNTH_INITIAL_GAIN`
+      // reserves half the synth's output for this trim; leaving it unset means
+      // full expression, not the neutral value it looks like).
+      this.deps.backend.controlChange(
+        assignment.instance,
+        assignment.channel,
+        CC_EXPRESSION,
+        percussionExpression()
+      );
     } else {
       // Switches the channel back off drums first, if the last audition was one.
       this.deps.backend.programSelect(
         assignment.instance,
         assignment.channel,
         voice.program
+      );
+      // Same reasoning as the percussion branch above, for a melodic patch.
+      this.deps.backend.controlChange(
+        assignment.instance,
+        assignment.channel,
+        CC_EXPRESSION,
+        instrumentExpression(voice.program)
       );
     }
     this.deps.backend.noteOn(
