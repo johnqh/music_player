@@ -1,6 +1,6 @@
 /**
- * A `SynthBackend` over the native soundfont synth — macOS today, and any
- * platform whose module satisfies `NativeSynthApi`.
+ * A `SynthBackend` over the native soundfont synth — macOS and Windows in the
+ * desktop apps, and any platform whose module satisfies `NativeSynthApi`.
  *
  * There is no engine here. The scheduler in `playback/soundfont-engine.ts` —
  * the tempo map, the lookahead, the loop, the seek, the governor, the sounding
