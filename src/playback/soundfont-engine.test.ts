@@ -1,14 +1,9 @@
 import { RENDER_DELAY_SECONDS } from '../shared/visual-sync.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { PlaybackLoadState, PlaybackPlan } from '@sudobility/music_types';
-import { CC_EXPRESSION } from '@sudobility/music_types';
 import { WebSynthBackend } from '../web/playback/web-backend.js';
 import type { WebBackendDeps } from '../web/playback/web-backend.js';
 import { SoundfontPlaybackEngine } from './soundfont-engine.js';
-import {
-  instrumentExpression,
-  percussionExpression,
-} from '../shared/instrument-gain.js';
 import {
   TICKS_PER_SECOND,
   testNote,
@@ -851,14 +846,15 @@ describe('SoundfontPlaybackEngine: auditioning', () => {
   });
 
   /**
-   * `SYNTH_INITIAL_GAIN` reserves half the synth's output for the expression
-   * trim `applyPlanToHost` sets on every real track (see its own tests below);
-   * an audition channel that never gets the same trim sounds up to 2x louder
-   * than the identical note heard during playback — audible, and exactly the
-   * asymmetry reported live: a tapped key sounds right, the same note in the
-   * score sounds quiet by comparison.
+   * The audition channel is single and reused under a held chord, so it must
+   * not send `controlChange` at all — see the comment on `noteOn` itself.
+   * Sending one immediately after `programSelect`/`setChannelPercussion` on a
+   * channel that may already have an earlier tap's voice sounding on it
+   * segfaulted inside FluidSynth's own voice re-modulation, reproduced live as
+   * a crash on every keyboard tap. These two calls are the ones that must stay
+   * absent from this path.
    */
-  it('sounds a melodic audition note at the same expression trim a real track gets', async () => {
+  it('does not send a controlChange for a melodic audition note', async () => {
     const { engine, host, plan } = setup();
     await engine.initialize();
     await engine.load(plan);
@@ -866,15 +862,10 @@ describe('SoundfontPlaybackEngine: auditioning', () => {
 
     engine.noteOn(60, { program: 0, name: 'x', isPercussion: false });
 
-    expect(host.controlChange).toHaveBeenCalledWith(
-      expect.any(Number),
-      expect.any(Number),
-      CC_EXPRESSION,
-      instrumentExpression(0)
-    );
+    expect(host.controlChange).not.toHaveBeenCalled();
   });
 
-  it('sounds a percussion audition note at the same expression trim a real kit gets', async () => {
+  it('does not send a controlChange for a percussion audition note', async () => {
     const { engine, host, plan } = setup();
     await engine.initialize();
     await engine.load(plan);
@@ -882,12 +873,7 @@ describe('SoundfontPlaybackEngine: auditioning', () => {
 
     engine.noteOn(36, { program: 0, name: 'Kick', isPercussion: true });
 
-    expect(host.controlChange).toHaveBeenCalledWith(
-      expect.any(Number),
-      expect.any(Number),
-      CC_EXPRESSION,
-      percussionExpression()
-    );
+    expect(host.controlChange).not.toHaveBeenCalled();
   });
 });
 

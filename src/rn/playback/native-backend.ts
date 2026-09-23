@@ -13,7 +13,7 @@ import type {
   SynthBackend,
 } from '../../playback/synth-backend.js';
 import { CHANNELS_PER_INSTANCE } from '../../playback/channel-allocator.js';
-import { SYNTH_INITIAL_GAIN } from '../../shared/mix.js';
+import { SYNTH_INITIAL_GAIN, headroomTrimFor } from '../../shared/mix.js';
 import type { PlaybackLoadState } from '@sudobility/music_types';
 import {
   CC_EXPRESSION,
@@ -83,6 +83,21 @@ export class NativeSynthBackend implements SynthBackend {
   private lastNow = 0;
   /** Read once per open driver; see `outputLatency`. */
   private latency: number | undefined;
+  /**
+   * The scalar `setMasterVolume` was last called with, and the score's own
+   * track count from `setTrackCount` — stored so either call can re-derive
+   * the actual gain sent to the synth from the other.
+   *
+   * `fluid_synth_set_gain` is the synth's *entire* output level, with no
+   * separate downstream mixing stage the way the web engine's master
+   * `GainNode` is — so the multi-track headroom trim `synth-host.ts` applies
+   * there has to be folded into this same native call instead. `setTrackCount`
+   * used to be a documented no-op here ("the native synth applies no
+   * per-track headroom of its own"), which is why a busy score summed
+   * straight into `synth.gain` at full, untrimmed level.
+   */
+  private masterVolume = 1;
+  private trackCount = 1;
   /**
    * The instance the metronome owns, and nothing else does.
    *
@@ -238,17 +253,23 @@ export class NativeSynthBackend implements SynthBackend {
     this.synth?.setInterpolation(order);
   }
   setMasterVolume(volume: number): void {
-    this.synth?.setMasterVolume(volume);
+    this.masterVolume = volume;
+    this.applyMasterGain();
   }
+  /** How many channels are summing, which sizes the headroom trim. */
+  setTrackCount(count: number): void {
+    this.trackCount = count;
+    this.applyMasterGain();
+  }
+
   /**
-   * Nothing to do: the native synth applies no per-track headroom of its own.
-   *
-   * Declared rather than omitted because the interface requires it, and a
-   * backend that quietly did nothing where the web one trims gain would be a
-   * difference nobody could see. The trim lives in `shared/mix.ts` and reaches
-   * both backends through the plan.
+   * Re-derives the actual synth gain from the last `setMasterVolume` and
+   * `setTrackCount` — see `masterVolume`'s own comment for why this backend
+   * has to do what the web engine's separate `GainNode` does.
    */
-  setTrackCount(): void {}
+  private applyMasterGain(): void {
+    this.synth?.setMasterVolume(this.masterVolume * headroomTrimFor(this.trackCount));
+  }
 
   dispose(): void {
     this.synth?.dispose();

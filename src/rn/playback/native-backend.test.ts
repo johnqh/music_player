@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { NativeSynthBackend } from './native-backend.js';
 import type { NativeSynth, NativeSynthApi } from './native-synth-api.js';
 import { PERCUSSION_CHANNEL } from '@sudobility/music_types';
+import { headroomTrimFor } from '../../shared/mix.js';
 
 type NoteAtCall = {
   instance: number;
@@ -212,5 +213,44 @@ describe('NativeSynthBackend', () => {
       status: 'loading',
       fraction: 0.5,
     });
+  });
+
+  /**
+   * `setTrackCount` used to be a no-op here — this is the gap that let a
+   * busy score sum into `synth.gain` at full, untrimmed level while the web
+   * engine trimmed its own master bus for the same score. Both calls must
+   * fold together into one `synth.setMasterVolume`, whichever arrives last,
+   * since a score can change track count after the transport's own volume
+   * was already set.
+   */
+  it('folds the multi-track headroom trim into the native master gain', async () => {
+    const { synth, backend } = await prepared();
+
+    backend.setMasterVolume(0.8);
+    backend.setTrackCount(4);
+
+    expect(synth.setMasterVolume).toHaveBeenLastCalledWith(
+      0.8 * headroomTrimFor(4)
+    );
+  });
+
+  it('re-derives the native master gain when track count changes after volume was set', async () => {
+    const { synth, backend } = await prepared();
+
+    backend.setTrackCount(9);
+    backend.setMasterVolume(1);
+
+    expect(synth.setMasterVolume).toHaveBeenLastCalledWith(
+      1 * headroomTrimFor(9)
+    );
+  });
+
+  it('applies no trim for a single track, matching the web engine', async () => {
+    const { synth, backend } = await prepared();
+
+    backend.setTrackCount(1);
+    backend.setMasterVolume(0.5);
+
+    expect(synth.setMasterVolume).toHaveBeenLastCalledWith(0.5);
   });
 });

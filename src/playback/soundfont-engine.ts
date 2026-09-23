@@ -645,17 +645,6 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
         assignment.channel,
         voice.program
       );
-      // Mirrors `applyPlanToHost`'s percussion branch: the same expression
-      // trim a real track's kit gets, or an audition kit sounds up to 2x
-      // louder than the identical kit heard during playback (`SYNTH_INITIAL_GAIN`
-      // reserves half the synth's output for this trim; leaving it unset means
-      // full expression, not the neutral value it looks like).
-      this.deps.backend.controlChange(
-        assignment.instance,
-        assignment.channel,
-        CC_EXPRESSION,
-        percussionExpression()
-      );
     } else {
       // Switches the channel back off drums first, if the last audition was one.
       this.deps.backend.programSelect(
@@ -663,14 +652,21 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
         assignment.channel,
         voice.program
       );
-      // Same reasoning as the percussion branch above, for a melodic patch.
-      this.deps.backend.controlChange(
-        assignment.instance,
-        assignment.channel,
-        CC_EXPRESSION,
-        instrumentExpression(voice.program)
-      );
     }
+    // No expression trim here, deliberately, unlike `applyPlanToHost`'s
+    // channels: this channel is a single one, shared and re-programmed on
+    // every tap and reused under a held chord, so a `controlChange` here can
+    // land right after a `programSelect`/`setChannelPercussion` on the same
+    // channel while an earlier tap's voice is still sounding on it. FluidSynth
+    // re-modulates every active voice on a channel when its CC changes
+    // (`fluid_synth_cc` -> `fluid_synth_modulate_voices_LOCAL`), and doing
+    // that immediately after reprogramming the channel segfaulted inside
+    // `fluid_mod_get_source_value` — reproduced live as "crashes when I click
+    // on keyboard" on macOS. `applyPlanToHost`'s channels are each set up once
+    // before any of their own notes have sounded, so they never hit this. The
+    // asymmetry this traded away — a tapped key up to 2x louder than the same
+    // note in the score — is the lesser problem; being crashed is worse than
+    // being loud. See `SYNTH_INITIAL_GAIN` for the other half of the fix.
     this.deps.backend.noteOn(
       assignment.instance,
       assignment.channel,

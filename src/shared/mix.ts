@@ -33,10 +33,18 @@ export const LIMITER_CEILING_DB = -1;
  * the shared mix module so web and native playback cannot drift apart again.
  */
 // The expression trim reserves half the synth's output for quiet FluidR3
-// patches. A normal patch therefore remains 0.7 (1.4 * 0.5), while a patch
-// with a 2x correction can use the full output without exceeding the synth's
+// patches. A normal patch therefore lands at 1.4 (2.8 * 0.5), while a patch
+// with a 2x correction can use the full 2.8 without exceeding the synth's
 // nominal range.
-export const SYNTH_INITIAL_GAIN = 1.4;
+//
+// Was 1.4 (0.7 for a normal patch). Raised when `NativeSynthBackend` picked
+// up `headroomTrimFor` (see its own `masterVolume` comment): that trim is
+// `1/sqrt(trackCount)`, a *reduction*, so wiring it up with the gain left
+// unchanged would have made every multi-track score quieter than it already
+// was — the opposite of the reported complaint ("comfortable at normal
+// volume, not max"). Doubled so a typical multi-track score ends up louder
+// than the untrimmed baseline was, not just safer from summing headroom.
+export const SYNTH_INITIAL_GAIN = 2.8;
 
 /**
  * How far to pull the master down for `trackCount` channels summing into it.
