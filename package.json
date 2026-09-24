@@ -1,6 +1,6 @@
 {
   "name": "@sudobility/music_player",
-  "version": "0.1.47",
+  "version": "0.1.49",
   "description": "Playback for ScoreSmith: transport, synth engines and offline rendering, for web and React Native",
   "author": "Sudobility",
   "license": "BUSL-1.1",

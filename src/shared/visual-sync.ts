@@ -43,20 +43,90 @@
  */
 export const SOUNDING_INTERVAL_MS = 16;
 
+/**
+ * Runs `tick` once per displayed frame, for the lit keys.
+ *
+ * A `setInterval` at frame rate is a request the main thread grants only when
+ * it is idle. With a WebGL view rendering every frame beside the keyboard —
+ * the Spatial stage — each frame's `requestAnimationFrame` work, layout and
+ * paint run first and the timer fires in whatever is left, so under load the
+ * lit keys slipped a frame or more behind the sound while the notes it was
+ * sampling had already been played. Measured as "obviously lagging" with the
+ * Spatial view open and fine without it.
+ *
+ * `requestAnimationFrame` *is* the frame: it runs at the start of every one
+ * the browser draws, ahead of that frame's paint, so a set advanced here is
+ * committed and painted in the same frame — the publish-to-paint the render
+ * delay assumes, rather than that plus the wait for the next timer slot.
+ * React Native has it too, on the JS thread, and it pauses in a background
+ * tab where there is nothing to light anyway; the scheduling pump still calls
+ * `reportSounding` on its own 50ms cadence, so the set keeps advancing there
+ * and simply publishes less often. Where the platform has no
+ * `requestAnimationFrame` at all, the interval stands.
+ */
+export function startSoundingTicker(tick: () => void): () => void {
+  if (
+    typeof requestAnimationFrame !== 'function' ||
+    typeof cancelAnimationFrame !== 'function'
+  ) {
+    const id = setInterval(tick, SOUNDING_INTERVAL_MS);
+    return () => clearInterval(id);
+  }
+  let handle = requestAnimationFrame(function frame() {
+    // Re-armed before the tick runs, so a tick that throws — guarded by the
+    // engines, but the point of the guard is that it should not matter —
+    // never ends the loop.
+    handle = requestAnimationFrame(frame);
+    tick();
+  });
+  return () => cancelAnimationFrame(handle);
+}
+
+/**
+ * The engines' default lit-keys ticker: frame-paced, unless the host supplied
+ * its own pump timer, in which case that timer at `SOUNDING_INTERVAL_MS` — a
+ * host or test that owns the engine's timing owns all of it, and a test that
+ * steps the pump by hand must be able to step the lights the same way.
+ */
+export function soundingTickerFrom(
+  startPump: ((tick: () => void, intervalMs: number) => () => void) | undefined
+): (tick: () => void) => () => void {
+  if (!startPump) return startSoundingTicker;
+  return tick => startPump(tick, SOUNDING_INTERVAL_MS);
+}
+
 /** Publish-to-paint: a React commit and a browser paint, about one frame. */
 export const RENDER_DELAY_SECONDS = 0.016;
 
 /**
- * What to add to the scheduling position to get the position to *show*.
+ * Half the lit-keys cadence: the mean age of a note boundary when the ticker
+ * first sees it.
+ *
+ * The ticker samples; it does not wake on a boundary. A note starting between
+ * two samples is noticed anywhere from 0 to one interval late, uniformly, so
+ * leading by half of it centres that error on zero instead of leaving the
+ * whole of it on the late side. The render delay cannot absorb this because
+ * the host measures that from publish to paint, and the sampling delay is
+ * spent before the publish.
+ */
+export const SOUNDING_SAMPLING_LEAD_SECONDS = SOUNDING_INTERVAL_MS / 2 / 1000;
+
+/**
+ * What to add to the scheduling position to get the position to *show*, in
+ * the position's own units — playback seconds.
  *
  * Applies to every playback-driven visual: which notes are sounding, and where
  * the caret is.
  *
- * Known simplification: the offset is applied in playback seconds without
- * scaling by the transport's speed, so at 2x it is out by about 8ms. Both
- * engines share the simplification deliberately — being more correct in one
- * than the other is worse than being consistent, and 8ms at double speed is
- * below what the eye resolves against a moving caret.
+ * Both delays are real time — a frame is a frame and a hardware buffer is a
+ * hardware buffer however fast the piece is played — but the position they
+ * correct runs at the transport's speed, so the correction is scaled by it
+ * before it is added. This used to be skipped as a "known simplification,
+ * ~8ms at 2x", an estimate made as if output latency were zero: with a real
+ * one the error is `(render - latency) * (1 - 1/speed)` in real time, which
+ * on Bluetooth headphones (~150ms) at half-speed practice is ~130ms LATE —
+ * the keyboard visibly behind the sound in exactly the mode a musician slows
+ * down to watch it.
  */
 export function visualOffsetSeconds(
   outputLatency?: number,
@@ -65,7 +135,9 @@ export function visualOffsetSeconds(
    * frame; the lit notes use what the host measured (see
    * `soundingRenderDelayOrDefault`).
    */
-  renderDelaySeconds: number = RENDER_DELAY_SECONDS
+  renderDelaySeconds: number = RENDER_DELAY_SECONDS,
+  /** The transport's tempo multiplier; playback seconds per real second. */
+  speed: number = 1
 ): number {
   const latency =
     typeof outputLatency === 'number' &&
@@ -73,7 +145,27 @@ export function visualOffsetSeconds(
     outputLatency >= 0
       ? outputLatency
       : 0;
-  return renderDelaySeconds - latency;
+  const rate = Number.isFinite(speed) && speed > 0 ? speed : 1;
+  return (renderDelaySeconds - latency) * rate;
+}
+
+/**
+ * `visualOffsetSeconds` for the lit notes specifically: the same two delays,
+ * plus the half-interval the sounding ticker takes on average to notice a
+ * boundary. The caret does not take this term — it dead-reckons between
+ * reports rather than waiting to be told, so it has no sampling delay to
+ * centre.
+ */
+export function soundingOffsetSeconds(
+  outputLatency: number | undefined,
+  renderDelaySeconds: number,
+  speed: number = 1
+): number {
+  return visualOffsetSeconds(
+    outputLatency,
+    renderDelaySeconds + SOUNDING_SAMPLING_LEAD_SECONDS,
+    speed
+  );
 }
 
 /**

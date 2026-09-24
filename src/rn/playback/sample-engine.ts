@@ -68,8 +68,9 @@ import type {
 } from './audio-api.js';
 import { applySustainLoop } from './sustain-loop.js';
 import {
-  SOUNDING_INTERVAL_MS,
+  soundingOffsetSeconds,
   soundingRenderDelayOrDefault,
+  soundingTickerFrom,
   visualOffsetSeconds,
 } from '../../shared/visual-sync.js';
 
@@ -102,6 +103,13 @@ export type SampleEngineDeps = {
   percussionBase?: string;
   /** Overridable so tests can step the pump by hand instead of waiting. */
   startPump?: (tick: () => void, intervalMs: number) => () => void;
+  /**
+   * The lit-keys ticker. Defaults to a frame-paced loop
+   * (`startSoundingTicker`) — or, when `startPump` is supplied, to that at
+   * `SOUNDING_INTERVAL_MS`, so a test that steps the engine's timers by hand
+   * steps this one too.
+   */
+  startSoundingTicker?: (tick: () => void) => () => void;
 };
 
 type Voice = {
@@ -201,6 +209,8 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
       loadAudioApi: deps.loadAudioApi ?? loadAudioApi,
       fetchPack: deps.fetchPack ?? defaultFetchPack,
       startPump: deps.startPump ?? defaultStartPump,
+      startSoundingTicker:
+        deps.startSoundingTicker ?? soundingTickerFrom(deps.startPump),
       packBase: deps.packBase,
       percussionBase: deps.percussionBase,
     };
@@ -343,10 +353,10 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     );
     // Its own cadence, faster than the position report: the caret interpolates
     // between position ticks and does not need them often, while a key light
-    // is a discrete event with nothing to interpolate it.
-    this.stopSoundingTimer = this.deps.startPump(
-      () => this.reportSounding(),
-      SOUNDING_INTERVAL_MS
+    // is a discrete event with nothing to interpolate it. Frame-paced rather
+    // than an interval — see `startSoundingTicker`.
+    this.stopSoundingTimer = this.deps.startSoundingTicker(() =>
+      this.reportSounding()
     );
     this.pump();
     this.reportPosition();
@@ -433,9 +443,15 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
   /** A scheduling tick as the tick to show. Identity when there is no tempo. */
   private visualTick(tick: number): number {
     if (!this.tempo) return tick;
+    // `ticksToSeconds` is score time, which runs at the tempo multiplier
+    // against the clock; the offset is scaled to match, as on the web.
     const seconds =
       this.tempo.ticksToSeconds(tick) +
-      visualOffsetSeconds(this.ctx?.outputLatency);
+      visualOffsetSeconds(
+        this.ctx?.outputLatency,
+        undefined,
+        this.tempoMultiplier
+      );
     return Math.max(0, this.tempo.secondsToTicks(seconds));
   }
 
@@ -451,7 +467,11 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
     if (!this.tempo) return;
     const at =
       this.tempo.ticksToSeconds(this.currentTick()) +
-      visualOffsetSeconds(this.ctx?.outputLatency, this.soundingRenderDelay);
+      soundingOffsetSeconds(
+        this.ctx?.outputLatency,
+        this.soundingRenderDelay,
+        this.tempoMultiplier
+      );
     const notes = this.sounding.advanceTo(at);
     if (notes) this.setActiveNotes(notes);
   }

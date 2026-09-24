@@ -36,8 +36,9 @@ import { PlaybackClock } from './clock.js';
 import { NoteQueue } from '../shared/note-queue.js';
 import { SoundingSet } from '../shared/sounding-set.js';
 import {
-  SOUNDING_INTERVAL_MS,
+  soundingOffsetSeconds,
   soundingRenderDelayOrDefault,
+  soundingTickerFrom,
   visualOffsetSeconds,
 } from '../shared/visual-sync.js';
 import { Governor } from './governor.js';
@@ -55,6 +56,13 @@ export type SoundfontEngineDeps = {
   now?: () => number;
   /** Starts the pump and returns a function that stops it. */
   startPump?: (tick: () => void, intervalMs: number) => () => void;
+  /**
+   * Starts the lit-keys ticker and returns a function that stops it.
+   * Defaults to a frame-paced loop (`startSoundingTicker`) — or, when
+   * `startPump` is supplied, to that at `SOUNDING_INTERVAL_MS`, so a host or
+   * test that owns the engine's timing owns all of it.
+   */
+  startSoundingTicker?: (tick: () => void) => () => void;
 };
 
 /** How often the pump runs. */
@@ -113,7 +121,9 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   /** When the pump was last expected to run, for measuring how late it is. */
   private nextPumpDueAt: number | null = null;
   private readonly clock: PlaybackClock;
-  private readonly deps: Required<Pick<SoundfontEngineDeps, 'startPump'>> &
+  private readonly deps: Required<
+    Pick<SoundfontEngineDeps, 'startPump' | 'startSoundingTicker'>
+  > &
     SoundfontEngineDeps;
 
   private plan: PlaybackPlan | null = null;
@@ -197,6 +207,8 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
           const id = setInterval(tick, ms);
           return () => clearInterval(id);
         }),
+      startSoundingTicker:
+        deps.startSoundingTicker ?? soundingTickerFrom(deps.startPump),
     };
     this.clock = new PlaybackClock(() => this.now());
     // The governor's only knob is interpolation order; see governor.ts for why
@@ -703,9 +715,10 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
   private startPump(): void {
     if (this.stopPump) return;
     this.stopPump = this.deps.startPump(() => this.tick(), PUMP_INTERVAL_MS);
-    this.stopSoundingTicker = this.deps.startPump(
-      () => this.tickSounding(),
-      SOUNDING_INTERVAL_MS
+    // Frame-paced, not an interval: see `startSoundingTicker` for why a timer
+    // at frame rate falls behind the moment something else draws every frame.
+    this.stopSoundingTicker = this.deps.startSoundingTicker(() =>
+      this.tickSounding()
     );
     this.tick();
   }
@@ -793,7 +806,12 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
       do not: `seek` reports the tick it was asked for, exactly.
     */
     this.report(
-      position + visualOffsetSeconds(this.deps.backend.outputLatency())
+      position +
+        visualOffsetSeconds(
+          this.deps.backend.outputLatency(),
+          undefined,
+          this.playbackSpeed
+        )
     );
     // A loop never ends the transport: its range may well run past the last
     // note, and stopping there would end playback mid-loop.
@@ -940,11 +958,15 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
    * caret, which interpolates and does not.
    */
   private reportSounding(): void {
+    // In playback seconds, like the position it is added to: the real-time
+    // delays are scaled by the speed inside, which is what keeps the lights on
+    // the sound at half speed as well as at full.
     const at =
       this.clock.positionSeconds +
-      visualOffsetSeconds(
+      soundingOffsetSeconds(
         this.deps.backend.outputLatency(),
-        this.soundingRenderDelay
+        this.soundingRenderDelay,
+        this.playbackSpeed
       );
     const sounding = this.sounding.advanceTo(at);
     if (sounding) this.observer?.onActiveNotes(sounding);

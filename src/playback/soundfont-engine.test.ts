@@ -1084,6 +1084,39 @@ describe('SoundfontPlaybackEngine: sounding notes', () => {
     expect(laggyTick).toBeLessThan(promptTick);
   });
 
+  it('holds the visuals back by the latency in real time, however slow the piece is played', async () => {
+    /*
+      The latency correction is real time, the position it corrects is playback
+      time. Applied unscaled, it held the caret and the lights back by the full
+      latency in *playback* seconds, which at half speed is twice the latency
+      in real time — the keys visibly behind the sound in the one mode a
+      musician slows down to watch them. Scaled, half the speed means half the
+      playback-seconds offset: after the same real interval, the half-speed
+      caret sits at half the full-speed tick, not further back still.
+    */
+    async function reportedAt(speed: number) {
+      const laggy = stubContext();
+      (laggy as unknown as { outputLatency: number }).outputLatency = 0.3;
+      const run = setup(undefined, () => laggy as unknown as AudioContext);
+      const seen = observed();
+      run.engine.setObserver(seen.observer);
+      await run.engine.initialize();
+      await run.engine.load(run.plan);
+      run.engine.setTempoMultiplier(speed);
+      await run.engine.play();
+      run.clock.t += 0.5;
+      run.pump.step();
+      return seen.onPositionTick.mock.calls.at(-1)?.[0] as number;
+    }
+
+    const full = await reportedAt(1);
+    const half = await reportedAt(0.5);
+    expect(full).toBeGreaterThan(0);
+    // Unscaled, this was 0: 0.25s of playback minus 0.3s of latency, clamped.
+    expect(half).toBeGreaterThan(0);
+    expect(Math.abs(half - full / 2)).toBeLessThanOrEqual(1);
+  });
+
   it('publishes the lit notes as far ahead as the host says drawing them takes', async () => {
     /*
       How long a change of lit notes takes to reach the screen is the host's
