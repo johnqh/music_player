@@ -430,6 +430,16 @@ describe('RNSamplePlaybackEngine', () => {
     ctx = makeEngine();
   });
 
+  it('says it is ready once it is up, before any score', async () => {
+    // A Play button on screen asks the engine to come up (`prepare`) with
+    // no score yet; an engine that came up in silence left the button a
+    // spinner for good.
+    const { observer, loads } = recordingObserver();
+    ctx.engine.setObserver(observer);
+    await ctx.engine.initialize();
+    expect(loads.at(-1)).toEqual({ status: 'ready' });
+  });
+
   it('does not report playing until the packs are decoded and a note could sound', async () => {
     // The same rule the web engine follows. The caret dead-reckons between
     // position reports, so announcing `playing` early glides it silently

@@ -50,7 +50,10 @@ import { NoteQueue } from '../../shared/note-queue.js';
 import { SoundingSet } from '../../shared/sounding-set.js';
 import { planDispatch } from '../../shared/pump-window.js';
 import { headroomTrimFor } from '../../shared/mix.js';
-import { instrumentGain, PERCUSSION_GAIN } from '../../shared/instrument-gain.js';
+import {
+  instrumentGain,
+  PERCUSSION_GAIN,
+} from '../../shared/instrument-gain.js';
 import { gmPackName, percussionPackName } from './gm-pack-name.js';
 import { PackLibrary } from './pack-library.js';
 import { RELEASE_SECONDS, planVoice } from './voice-plan.js';
@@ -234,6 +237,14 @@ export class RNSamplePlaybackEngine implements PlaybackEngine {
       packBase: this.deps.packBase,
       percussionBase: this.deps.percussionBase,
     });
+    /*
+      Up, and said so. The packs a score needs are loaded when the score is,
+      with their own `loading` → `ready`; but an engine asked to come up
+      before any score (`IMusicPlayer.prepare`, from a Play button on
+      screen) reported nothing here, so its readiness stayed `notReady` and
+      the button stayed a spinner for good.
+    */
+    if (this.loadState.status === 'idle') this.reportLoad({ status: 'ready' });
   }
 
   async load(plan: PlaybackPlan): Promise<void> {

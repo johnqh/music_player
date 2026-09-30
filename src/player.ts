@@ -25,7 +25,8 @@ import type { PlaybackEngine } from './engine.js';
 import { getMusicPositionSource } from '@sudobility/music_types';
 import { PlaybackBus } from './shared/bus.js';
 import { playbackPlan, playbackTracks, resolveVoice } from './shared/plan.js';
-import type { IMusicPlayer, Unsubscribe } from './types.js';
+import { readinessOf } from './types.js';
+import type { IMusicPlayer, PlaybackReadiness, Unsubscribe } from './types.js';
 
 export class MusicPlayer implements IMusicPlayer {
   /**
@@ -55,6 +56,7 @@ export class MusicPlayer implements IMusicPlayer {
   private score: Score | null = null;
   private visibleTrackIds: readonly string[] | null = null;
 
+  private loadState: PlaybackLoadState = { status: 'idle' };
   private readonly loadStateListeners = new Set<
     (state: PlaybackLoadState) => void
   >();
@@ -114,6 +116,7 @@ export class MusicPlayer implements IMusicPlayer {
       },
       // Optional on the contract: an engine with nothing to load never calls it.
       onLoadStateChange: state => {
+        this.loadState = state;
         for (const listener of this.loadStateListeners) listener(state);
       },
     });
@@ -244,6 +247,21 @@ export class MusicPlayer implements IMusicPlayer {
   onLoadState(fn: (state: PlaybackLoadState) => void): Unsubscribe {
     this.loadStateListeners.add(fn);
     return () => this.loadStateListeners.delete(fn);
+  }
+
+  get readiness(): PlaybackReadiness {
+    return readinessOf(this.loadState);
+  }
+
+  async prepare(): Promise<void> {
+    // The engine's own `initialize` is idempotent and retryable; nothing to
+    // add here but the name. A rejection is already reported as a `failed`
+    // load state, so it is not thrown twice.
+    try {
+      await this.engine.initialize();
+    } catch {
+      // Reported through `onLoadState`; see above.
+    }
   }
 
   dispose(): void {

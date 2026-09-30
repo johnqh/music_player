@@ -35,6 +35,15 @@ export function getMusicPlayer(): IMusicPlayer {
   return instance;
 }
 
+/**
+ * The player, or `null` before the composition root has installed one — for
+ * a component that can render without it, such as a transport in a test,
+ * rather than one that should have thrown.
+ */
+export function getMusicPlayerIfInitialized(): IMusicPlayer | null {
+  return instance;
+}
+
 /** Test-only: clears the singleton so suites cannot leak into each other. */
 export function resetMusicPlayer(): void {
   instance = null;

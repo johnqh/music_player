@@ -107,5 +107,38 @@ export interface IMusicPlayer {
    */
   onLoadState(fn: (state: PlaybackLoadState) => void): Unsubscribe;
 
+  /**
+   * Whether the engine can sound a note now: `notReady` until something
+   * asks it to come up, `preparing` while it does, `ready` after. One value,
+   * owned here, so every Play button on every platform shows the same thing
+   * — and never a Play the engine cannot honour. `usePlaybackReadiness`
+   * (`@sudobility/music_player/react`) reads it and calls `prepare()`.
+   *
+   * Derived from the load state: `loading` is `preparing`; `ready` is
+   * `ready`; `idle` is `notReady`. **`failed` is `ready`**: the engine could
+   * not come up, the failure is reported through `onLoadState` for the host
+   * to show, and the one thing left to offer is a Play that retries — a
+   * spinner that never ends would offer nothing.
+   */
+  readonly readiness: PlaybackReadiness;
+
+  /**
+   * Brings the engine up — the soundfont fetched and the synth built —
+   * without a score, so it is done by the time the first Play arrives rather
+   * than started by it. Idempotent: while it is under way, or once done, this
+   * is a no-op that resolves when it is.
+   */
+  prepare(): Promise<void>;
+
   dispose(): void;
+}
+
+export const PLAYBACK_READINESS = ['notReady', 'preparing', 'ready'] as const;
+export type PlaybackReadiness = (typeof PLAYBACK_READINESS)[number];
+
+/** The readiness a load state amounts to. */
+export function readinessOf(state: PlaybackLoadState): PlaybackReadiness {
+  if (state.status === 'loading') return 'preparing';
+  if (state.status === 'idle') return 'notReady';
+  return 'ready';
 }

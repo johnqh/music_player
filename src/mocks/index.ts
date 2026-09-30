@@ -14,7 +14,8 @@ import type {
   TransportPlaybackState,
 } from '@sudobility/music_types';
 import { PlaybackBus } from '../shared/bus.js';
-import type { IMusicPlayer, Unsubscribe } from '../types.js';
+import { readinessOf } from '../types.js';
+import type { IMusicPlayer, PlaybackReadiness, Unsubscribe } from '../types.js';
 
 export class MockMusicPlayer implements IMusicPlayer {
   readonly calls: string[] = [];
@@ -102,6 +103,19 @@ export class MockMusicPlayer implements IMusicPlayer {
     return () => this.loadState.delete(fn);
   }
 
+  /**
+   * Follows what `emitLoadState` last reported, as the real player's does;
+   * `ready` to begin with, so a test that never mentions loading sees a Play
+   * button. `prepare()` is counted and changes nothing: what it leads to is
+   * whatever the test reports next.
+   */
+  readiness: PlaybackReadiness = 'ready';
+  prepareCalls = 0;
+
+  async prepare(): Promise<void> {
+    this.prepareCalls += 1;
+  }
+
   dispose(): void {
     this.calls.push('dispose');
   }
@@ -119,6 +133,7 @@ export class MockMusicPlayer implements IMusicPlayer {
     for (const fn of this.transport) fn(state);
   }
   emitLoadState(state: PlaybackLoadState): void {
+    this.readiness = readinessOf(state);
     for (const fn of this.loadState) fn(state);
   }
 }
