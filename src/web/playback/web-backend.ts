@@ -92,12 +92,17 @@ function debugAudio(message: string, details?: Record<string, unknown>): void {
  */
 const FETCH_SHARE = 0.5;
 
+type RoutableAudioContext = AudioContext & {
+  setSinkId?: (deviceId: string) => Promise<void>;
+};
+
 export class WebSynthBackend implements SynthBackend {
   private readonly deps: Required<
     Pick<WebBackendDeps, 'host' | 'moduleUrls' | 'fontUrl' | 'loadFont'>
   > &
     WebBackendDeps;
   private context: AudioContext | null = null;
+  private outputDeviceId = '';
   private outputProbeScheduled = false;
   private removeLifecycleListeners: (() => void) | null = null;
 
@@ -112,6 +117,41 @@ export class WebSynthBackend implements SynthBackend {
             onProgress,
           })),
     };
+  }
+
+  getAudioOutputDeviceId(): string {
+    return this.outputDeviceId;
+  }
+
+  /** Route the existing context live, or remember the choice until it is created. */
+  async setAudioOutputDevice(deviceId: string): Promise<void> {
+    if (this.context) {
+      const context = this.context as RoutableAudioContext;
+      if (typeof context.setSinkId !== 'function') {
+        throw new Error(
+          'Audio output selection is unavailable in this browser.'
+        );
+      }
+      await context.setSinkId(deviceId);
+    }
+    this.outputDeviceId = deviceId;
+  }
+
+  private async applyAudioOutputDevice(): Promise<void> {
+    if (this.outputDeviceId && this.context) {
+      const context = this.context as RoutableAudioContext;
+      if (typeof context.setSinkId !== 'function') {
+        this.outputDeviceId = '';
+        return;
+      }
+      try {
+        await context.setSinkId(this.outputDeviceId);
+      } catch {
+        // A device may be unplugged between selection and the first Play.
+        // Keep playback available on the system default output.
+        this.outputDeviceId = '';
+      }
+    }
   }
 
   activateAudio(): void {
@@ -130,6 +170,7 @@ export class WebSynthBackend implements SynthBackend {
     onProgress: (state: PlaybackLoadState) => void;
   }): Promise<PrepareResult> {
     this.context ??= this.deps.createContext?.() ?? new AudioContext();
+    await this.applyAudioOutputDevice();
     this.installLifecycleListeners();
     debugAudio('context created', this.contextSnapshot());
     await this.resumeContext();

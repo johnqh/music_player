@@ -64,18 +64,24 @@ export function createMusicPlayer({
   console.info('[ScoreSmith audio]', 'web music_player module active', {
     packageVersion: '0.1.34-local',
   });
-  return new MusicPlayer(
+  const backend = new WebSynthBackend({
+    host: new SynthHost({ createSynth: createWorkletSynth }),
+    moduleUrls: {
+      fluidsynth: soundfont.fluidsynthModuleUrl,
+      worklet: soundfont.workletModuleUrl,
+    },
+    fontUrl: soundfont.fontUrl,
+  });
+  const player = new MusicPlayer(
     new SoundfontPlaybackEngine({
-      backend: new WebSynthBackend({
-        host: new SynthHost({ createSynth: createWorkletSynth }),
-        moduleUrls: {
-          fluidsynth: soundfont.fluidsynthModuleUrl,
-          worklet: soundfont.workletModuleUrl,
-        },
-        fontUrl: soundfont.fontUrl,
-      }),
+      backend,
     })
   );
+  return Object.assign(player, {
+    setAudioOutputDevice: (deviceId: string) =>
+      backend.setAudioOutputDevice(deviceId),
+    getAudioOutputDeviceId: () => backend.getAudioOutputDeviceId(),
+  });
 }
 
 /**

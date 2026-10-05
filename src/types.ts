@@ -30,6 +30,10 @@ export interface IMusicPlayer {
   /** Activates browser audio synchronously from the user's Play gesture. */
   activateAudio?(): void;
 
+  /** Browser playback only: change the destination of its live AudioContext. */
+  setAudioOutputDevice?(deviceId: string): Promise<void>;
+  getAudioOutputDeviceId?(): string;
+
   /**
    * Adopts a score.
    *
