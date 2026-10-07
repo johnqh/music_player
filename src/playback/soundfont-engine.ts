@@ -260,12 +260,15 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
     try {
       const result = await this.deps.backend.prepare({
         instanceCount: this.instanceCount,
+        programs: this.requiredPrograms(),
         onProgress: state => this.reportLoad(state),
       });
       // Not a failure: the backend could not come up yet and said so, which on
       // the web means a context still waiting for a user gesture. `play()` and
       // `noteOn()` are gestures and will get it running.
       if (result === 'deferred') return;
+      // A score can change while the async synth load is in flight.
+      await this.deps.backend.setPrograms?.(this.requiredPrograms());
       this.initialized = true;
       // The score may have arrived while the backend was still deferred; it
       // has not been told about it yet.
@@ -357,6 +360,7 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
       // A score can grow past what the open synths can address, and the tracks
       // beyond them are silent until this resolves.
       await this.deps.backend.ensureInstances(this.instanceCount);
+      await this.deps.backend.setPrograms?.(this.requiredPrograms());
       this.applyPlanToHost(plan.tracks);
     } else void this.initialize();
   }
@@ -395,6 +399,23 @@ export class SoundfontPlaybackEngine implements PlaybackEngine {
       instance: 0,
       channel: CHANNELS_PER_INSTANCE - 1,
       needsDrumTypeSwitch: false,
+    };
+  }
+
+  private requiredPrograms(): { melodic: number[]; percussion: number[] } {
+    const melodic = new Set<number>();
+    const percussion = new Set<number>();
+    const tracks = this.plan?.tracks ?? [];
+    const hasSolo = tracks.some(track => track.solo);
+    for (const track of tracks) {
+      if (hasSolo ? !track.solo : track.muted) continue;
+      (track.isPercussion ? percussion : melodic).add(track.midiProgram);
+    }
+    // The metronome uses the standard kit on its dedicated synth instance.
+    percussion.add(0);
+    return {
+      melodic: [...melodic].sort((a, b) => a - b),
+      percussion: [...percussion].sort((a, b) => a - b),
     };
   }
 

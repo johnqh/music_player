@@ -83,6 +83,7 @@ export class NativeSynthBackend implements SynthBackend {
   private lastNow = 0;
   /** Read once per open driver; see `outputLatency`. */
   private latency: number | undefined;
+  private programSignature = '';
   /**
    * The scalar `setMasterVolume` was last called with, and the score's own
    * track count from `setTrackCount` — stored so either call can re-derive
@@ -121,9 +122,11 @@ export class NativeSynthBackend implements SynthBackend {
 
   async prepare({
     instanceCount,
+    programs,
     onProgress,
   }: {
     instanceCount: number;
+    programs?: { melodic: number[]; percussion: number[] };
     onProgress: (state: PlaybackLoadState) => void;
   }): Promise<PrepareResult> {
     if (!this.api.isSupported()) {
@@ -135,8 +138,10 @@ export class NativeSynthBackend implements SynthBackend {
       soundfontUri: this.soundfontUri,
       instanceCount: instanceCount + 1,
       settings: SETTINGS,
+      programs,
       onProgress: fraction => onProgress({ status: 'loading', fraction }),
     });
+    this.programSignature = this.signature(programs);
     this.adoptClickInstance(instanceCount);
     this.resetClock();
     // No deferred case: nothing here waits on a user gesture the way a
@@ -147,6 +152,21 @@ export class NativeSynthBackend implements SynthBackend {
   async ensureInstances(count: number): Promise<void> {
     await this.require().ensureInstances(count + 1);
     this.adoptClickInstance(count);
+  }
+
+  async setPrograms(programs: { melodic: number[]; percussion: number[] }): Promise<void> {
+    const signature = this.signature(programs);
+    if (signature === this.programSignature) return;
+    await this.require().setPrograms?.(programs);
+    this.programSignature = signature;
+    // A platform may rebuild its synth pool when the required presets change.
+    this.adoptClickInstance(this.clickInstance);
+  }
+
+  private signature(programs: { melodic: number[]; percussion: number[] } | undefined): string {
+    return programs
+      ? `${programs.melodic.join(',')}|${programs.percussion.join(',')}`
+      : '';
   }
 
   /** The click sits past the last instance the score uses, on the drum channel. */

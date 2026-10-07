@@ -118,6 +118,22 @@ describe('NativeSynthBackend', () => {
     });
   });
 
+  it('passes only the score programs to the native synth and avoids redundant updates', async () => {
+    const f = fakeApi();
+    f.synth.setPrograms = vi.fn().mockResolvedValue(undefined);
+    const backend = new NativeSynthBackend({ api: f.api, soundfontUri: 'font.sf3' });
+    const programs = { melodic: [0, 40], percussion: [0, 8] };
+    await backend.prepare({ instanceCount: 1, programs, onProgress: vi.fn() });
+    expect(f.synth.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ programs })
+    );
+
+    await backend.setPrograms(programs);
+    expect(f.synth.setPrograms).not.toHaveBeenCalled();
+    await backend.setPrograms({ melodic: [40], percussion: [0] });
+    expect(f.synth.setPrograms).toHaveBeenCalledTimes(1);
+  });
+
   it('reports the synth clock and latency, and 0 before it exists', async () => {
     const backend = new NativeSynthBackend({
       api: fakeApi().api,

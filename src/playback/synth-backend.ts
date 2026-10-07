@@ -57,8 +57,15 @@ export type SynthBackend = {
    */
   prepare(options: {
     instanceCount: number;
+    /** GM programs present in this score, split by melodic and percussion bank. */
+    programs?: { melodic: number[]; percussion: number[] };
     onProgress: (state: PlaybackLoadState) => void;
   }): Promise<PrepareResult>;
+  /** Updates the score's required GM programs when the score changes. */
+  setPrograms?(programs: {
+    melodic: number[];
+    percussion: number[];
+  }): Promise<void>;
   /** Grows the pool. Never shrinks: a sounding note must not lose its synth. */
   ensureInstances(count: number): Promise<void>;
 
